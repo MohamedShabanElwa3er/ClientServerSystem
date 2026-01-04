@@ -8,12 +8,10 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
-    # ✅ Global environment
+    # ✅ Global environment (headless Qt)
     env:
       QT_QPA_PLATFORM: offscreen
       QT_LOGGING_RULES: "qt.qpa.*=false"
-      CXXFLAGS: "--coverage -O0"
-      LDFLAGS: "--coverage"
 
     steps:
     # =========================
@@ -39,7 +37,7 @@ jobs:
           gcovr
 
     # =========================
-    # 3️⃣ Build GoogleTest
+    # 3️⃣ Build GoogleTest (Ubuntu ships sources only)
     # =========================
     - name: Build GoogleTest
       run: |
@@ -59,7 +57,7 @@ jobs:
         rm -f .qmake.stash
 
     # =========================
-    # 5️⃣ Preflight checks
+    # 5️⃣ Preflight checks (FAIL FAST)
     # =========================
     - name: Verify test sources exist
       run: |
@@ -78,11 +76,13 @@ jobs:
         done
 
     # =========================
-    # 6️⃣ Configure project
+    # 6️⃣ Configure project (qmake + coverage)
     # =========================
-    - name: Configure project
+    - name: Configure project (with coverage)
       run: |
-        qmake6 -r ClientServerSystem.pro
+        qmake6 -r ClientServerSystem.pro \
+          "QMAKE_CXXFLAGS+=--coverage -O0" \
+          "QMAKE_LFLAGS+=--coverage"
 
     # =========================
     # 7️⃣ Build project
@@ -92,7 +92,7 @@ jobs:
         make -j$(nproc)
 
     # =========================
-    # 8️⃣ Run QtTests
+    # 8️⃣ Run QtTests (generate .gcda)
     # =========================
     - name: Run QtTests
       run: |
@@ -113,8 +113,16 @@ jobs:
     # =========================
     - name: Generate coverage report
       run: |
-        lcov --capture --directory . --output-file coverage.info
-        lcov --remove coverage.info '/usr/*' --output-file coverage.info
+        lcov --capture \
+             --directory . \
+             --ignore-errors empty \
+             --output-file coverage.info
+
+        lcov --remove coverage.info \
+             '/usr/*' \
+             '*/tests/*' \
+             --output-file coverage.info
+
         genhtml coverage.info --output-directory coverage-report
 
     # =========================
