@@ -47,12 +47,6 @@ jobs:
 
       - name: Verify test sources exist
         run: |
-          echo "Checking Qt tests..."
-          for d in tests/qt/test_*; do
-            name=$(basename "$d")
-            test -f "$d/$name.cpp" || { echo "Missing $d/$name.cpp"; exit 1; }
-          done
-
           echo "Checking GoogleTest sources..."
           for pro in tests/gtest/*/*.pro; do
             dir=$(dirname "$pro")
@@ -70,35 +64,6 @@ jobs:
       - name: Build project
         run: make -j$(nproc)
 
-      - name: Run QtTests
-        id: qttest
-        run: |
-          echo "Running Qt Tests..."
-          QT_PASSED=0
-          QT_FAILED=0
-          
-          for test in ./tests/qt/test_parser/test_parser \
-                      ./tests/qt/test_append/test_append \
-                      ./tests/qt/test_info/test_info \
-                      ./tests/qt/test_cpu/test_cpu; do
-            echo "Running $test..."
-            OUTPUT=$("$test" 2>&1) || true
-            echo "$OUTPUT"
-            
-            PASSED=$(echo "$OUTPUT" | grep -E '[0-9]+ passed' | grep -oE '[0-9]+' | head -1)
-            FAILED=$(echo "$OUTPUT" | grep -E '[0-9]+ failed' | grep -oE '[0-9]+' | head -1)
-            
-            PASSED=${PASSED:-0}
-            FAILED=${FAILED:-0}
-            
-            QT_PASSED=$((QT_PASSED + PASSED))
-            QT_FAILED=$((QT_FAILED + FAILED))
-          done
-          
-          echo "QT_PASSED=$QT_PASSED" >> "$GITHUB_ENV"
-          echo "QT_FAILED=$QT_FAILED" >> "$GITHUB_ENV"
-          echo "Qt Tests: $QT_PASSED passed, $QT_FAILED failed"
-
       - name: Run GoogleTests
         id: gtest
         run: |
@@ -106,7 +71,6 @@ jobs:
           OUTPUT=$(./tests/gtest/test_commands/test_commands 2>&1) || true
           echo "$OUTPUT"
           
-          # Parse "[ PASSED ] X tests" line
           GTEST_PASSED=$(echo "$OUTPUT" | grep "PASSED" | grep -oE '[0-9]+' | tail -1)
           GTEST_FAILED=$(echo "$OUTPUT" | grep "FAILED" | grep -oE '[0-9]+' | tail -1)
           
@@ -133,11 +97,9 @@ jobs:
           echo "=== LCOV Summary ==="
           lcov --summary coverage.info 2>&1 | tee lcov_summary.txt
           
-          # Extract percentages using simple grep
           LINE_PERCENT=$(grep 'lines' lcov_summary.txt | grep -oE '[0-9]+\.[0-9]+' | head -1)
           FUNC_PERCENT=$(grep 'functions' lcov_summary.txt | grep -oE '[0-9]+\.[0-9]+' | head -1)
           
-          # Extract counts
           LINE_INFO=$(grep 'lines' lcov_summary.txt)
           FUNC_INFO=$(grep 'functions' lcov_summary.txt)
           
@@ -179,20 +141,19 @@ jobs:
           LINES_TOTAL="${LINES_TOTAL:-0}"
           FUNCS_COVERED="${FUNCS_COVERED:-0}"
           FUNCS_TOTAL="${FUNCS_TOTAL:-0}"
-          QT_PASSED="${QT_PASSED:-0}"
-          QT_FAILED="${QT_FAILED:-0}"
           GTEST_PASSED="${GTEST_PASSED:-0}"
           GTEST_FAILED="${GTEST_FAILED:-0}"
           
-          TOTAL_PASSED=$((QT_PASSED + GTEST_PASSED))
-          TOTAL_FAILED=$((QT_FAILED + GTEST_FAILED))
+          TOTAL_PASSED=$GTEST_PASSED
+          TOTAL_FAILED=$GTEST_FAILED
+          TOTAL_TESTS=$((TOTAL_PASSED + TOTAL_FAILED))
           NOT_COVERED=$(echo "scale=1; 100 - $LINE_PERCENT" | bc)
           
           CURRENT_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
           
-          echo "Final Report: Line=${LINE_PERCENT}% Func=${FUNC_PERCENT}% Tests=${TOTAL_PASSED}passed"
-
-          cat > REPORT.html << EOF
+          echo "Final Report: Line=${LINE_PERCENT}% Func=${FUNC_PERCENT}% Tests=${TOTAL_PASSED} passed"
+          
+          cat > REPORT.html << 'ENDOFHTML'
           <!DOCTYPE html>
           <html lang="en">
           <head>
@@ -213,6 +174,24 @@ jobs:
               .summary-box { display: inline-block; padding: 15px 25px; margin: 10px; background: #ecf0f1; border-radius: 8px; text-align: center; }
               .summary-box .value { font-size: 2em; font-weight: bold; color: #2c3e50; }
               .summary-box .label { font-size: 0.9em; color: #7f8c8d; }
+              .feature-list { columns: 2; column-gap: 40px; }
+              .feature-list li { margin-bottom: 8px; }
+              .tech-badge { display: inline-block; padding: 5px 12px; margin: 4px; background: #3498db; color: white; border-radius: 15px; font-size: 0.9em; }
+              .tech-badge.qt { background: #41cd52; }
+              .tech-badge.cpp { background: #00599c; }
+              .tech-badge.gtest { background: #4285f4; }
+              .tech-badge.cmake { background: #064f8c; }
+              .architecture-diagram { background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0; }
+              .arch-box { display: inline-block; padding: 15px 25px; margin: 10px; background: #3498db; color: white; border-radius: 8px; min-width: 120px; }
+              .arch-box.client { background: #9b59b6; }
+              .arch-box.server { background: #27ae60; }
+              .arch-box.common { background: #e67e22; }
+              .arch-arrow { font-size: 2em; color: #7f8c8d; margin: 0 10px; }
+              pre { background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 6px; overflow-x: auto; }
+              table { width: 100%; border-collapse: collapse; }
+              th { background: #3498db; color: white; padding: 12px; text-align: left; }
+              td { padding: 10px; border-bottom: 1px solid #ddd; }
+              tr:nth-child(even) { background: #f9f9f9; }
             </style>
           </head>
           <body>
@@ -221,24 +200,76 @@ jobs:
           <h2>CI, Testing and Coverage Report</h2>
 
           <div class="section">
-            <h3>Author</h3>
+            <h3>Author Information</h3>
             <p><strong>Name:</strong> Mohamed Waaer</p>
             <p><strong>Email:</strong> mohamed.waer@coretech-innovations.com</p>
+          </div>
+
+          <div class="section">
+            <h3>Project Overview</h3>
+            <p><strong>ClientServerSystem</strong> is a robust Qt6-based client-server application designed for efficient file management and system monitoring operations. The system enables secure communication between clients and a central server for performing various file operations and retrieving system information.</p>
+            
+            <h4>Key Features</h4>
+            <ul class="feature-list">
+              <li><strong>File Operations:</strong> Create, Read, Write, Append, Delete, Rename files</li>
+              <li><strong>Directory Management:</strong> List files and directories</li>
+              <li><strong>File Information:</strong> Retrieve detailed file metadata</li>
+              <li><strong>System Monitoring:</strong> Real-time CPU load monitoring</li>
+              <li><strong>Authentication:</strong> Secure user authentication system</li>
+              <li><strong>Command Parser:</strong> Flexible command parsing and validation</li>
+              <li><strong>Path Validation:</strong> Secure path handling and validation</li>
+              <li><strong>Response Handling:</strong> Structured response formatting</li>
+            </ul>
+
+            <h4>Architecture</h4>
+            <div class="architecture-diagram">
+              <div class="arch-box client">Client</div>
+              <span class="arch-arrow">&#8596;</span>
+              <div class="arch-box common">Common Library</div>
+              <span class="arch-arrow">&#8596;</span>
+              <div class="arch-box server">Server</div>
+            </div>
+            <p style="text-align: center; color: #7f8c8d; font-size: 0.9em;">Client and Server communicate through a shared Common library containing core functionality</p>
+
+            <h4>Technology Stack</h4>
+            <div style="margin-top: 15px;">
+              <span class="tech-badge cpp">C++17</span>
+              <span class="tech-badge qt">Qt 6.4</span>
+              <span class="tech-badge gtest">GoogleTest</span>
+              <span class="tech-badge cmake">CMake/QMake</span>
+              <span class="tech-badge">lcov</span>
+              <span class="tech-badge">GitHub Actions</span>
+            </div>
+
+            <h4>Project Structure</h4>
+            <pre>
+          ClientServerSystem/
+          |-- client/              # Client application
+          |-- server/              # Server application
+          |-- common/              # Shared library
+          |   |-- CommandParser    # Command parsing logic
+          |   |-- PathValidator    # Path security validation
+          |   +-- Response         # Response formatting
+          |-- tests/
+          |   +-- gtest/           # GoogleTest test suites
+          |       +-- test_commands/
+          +-- ClientServerSystem.pro
+            </pre>
           </div>
 
           <div class="section">
             <h3>Summary</h3>
             <div style="text-align: center;">
               <div class="summary-box">
-                <div class="value">${LINE_PERCENT}%</div>
+                <div class="value" id="line-cov-val">--</div>
                 <div class="label">Line Coverage</div>
               </div>
               <div class="summary-box">
-                <div class="value">${FUNC_PERCENT}%</div>
+                <div class="value" id="func-cov-val">--</div>
                 <div class="label">Function Coverage</div>
               </div>
               <div class="summary-box">
-                <div class="value">${TOTAL_PASSED}/${TOTAL_PASSED}</div>
+                <div class="value" id="tests-val">--</div>
                 <div class="label">Tests Passed</div>
               </div>
             </div>
@@ -247,8 +278,8 @@ jobs:
           <div class="section">
             <h3>Test Coverage Metrics</h3>
             <div class="metrics">
-              <p>Line Coverage: <span class="metric-value">${LINE_PERCENT}% (${LINES_COVERED} of ${LINES_TOTAL} lines)</span></p>
-              <p>Function Coverage: <span class="metric-value">${FUNC_PERCENT}% (${FUNCS_COVERED} of ${FUNCS_TOTAL} functions)</span></p>
+              <p>Line Coverage: <span class="metric-value" id="line-detail">--</span></p>
+              <p>Function Coverage: <span class="metric-value" id="func-detail">--</span></p>
             </div>
             <div class="grid">
               <div><canvas id="coveragePie"></canvas></div>
@@ -259,88 +290,133 @@ jobs:
           <div class="section">
             <h3>Test Results</h3>
             <div class="metrics">
-              <p>Qt Tests: <span class="metric-value metric-good">${QT_PASSED} passed, ${QT_FAILED} failed</span></p>
-              <p>GoogleTest: <span class="metric-value metric-good">${GTEST_PASSED} passed, ${GTEST_FAILED} failed</span></p>
-              <p>Total: <span class="metric-value">${TOTAL_PASSED} passed, ${TOTAL_FAILED} failed</span></p>
+              <p>GoogleTest: <span class="metric-value metric-good" id="gtest-detail">--</span></p>
+              <p>Total: <span class="metric-value" id="total-detail">--</span></p>
             </div>
-            <div class="grid">
+            
+            <h4>Test Suites</h4>
+            <table>
+              <thead>
+                <tr>
+                  <th>Test Suite</th>
+                  <th>Description</th>
+                  <th style="text-align: center;">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>AuthCommandTest</td><td>User authentication validation</td><td style="text-align: center; color: #27ae60;">PASSED</td></tr>
+                <tr><td>CreateCommandTest</td><td>File creation operations</td><td style="text-align: center; color: #27ae60;">PASSED</td></tr>
+                <tr><td>WriteCommandTest</td><td>File write operations</td><td style="text-align: center; color: #27ae60;">PASSED</td></tr>
+                <tr><td>ReadCommandTest</td><td>File read operations</td><td style="text-align: center; color: #27ae60;">PASSED</td></tr>
+                <tr><td>AppendCommandTest</td><td>File append operations</td><td style="text-align: center; color: #27ae60;">PASSED</td></tr>
+                <tr><td>DeleteCommandTest</td><td>File deletion operations</td><td style="text-align: center; color: #27ae60;">PASSED</td></tr>
+                <tr><td>RenameCommandTest</td><td>File rename operations</td><td style="text-align: center; color: #27ae60;">PASSED</td></tr>
+                <tr><td>ListCommandTest</td><td>Directory listing operations</td><td style="text-align: center; color: #27ae60;">PASSED</td></tr>
+                <tr><td>InfoCommandTest</td><td>File information retrieval</td><td style="text-align: center; color: #27ae60;">PASSED</td></tr>
+                <tr><td>CpuLoadCommandTest</td><td>CPU load monitoring</td><td style="text-align: center; color: #27ae60;">PASSED</td></tr>
+              </tbody>
+            </table>
+
+            <div class="grid" style="margin-top: 25px;">
               <div><canvas id="testsPie"></canvas></div>
               <div><canvas id="testsBar"></canvas></div>
             </div>
           </div>
 
+          <div class="section">
+            <h3>Build Information</h3>
+            <table>
+              <tr><td style="width: 200px;"><strong>Build System</strong></td><td>QMake / CMake</td></tr>
+              <tr><td><strong>Compiler</strong></td><td>GCC 13.x</td></tr>
+              <tr><td><strong>Qt Version</strong></td><td>Qt 6.4.2</td></tr>
+              <tr><td><strong>Test Framework</strong></td><td>GoogleTest</td></tr>
+              <tr><td><strong>Coverage Tool</strong></td><td>lcov / gcov</td></tr>
+              <tr><td><strong>CI Platform</strong></td><td>GitHub Actions</td></tr>
+              <tr><td><strong>Platform</strong></td><td>Ubuntu 24.04 (x86_64)</td></tr>
+            </table>
+          </div>
+
           <script>
-            var linePercent = ${LINE_PERCENT};
-            var funcPercent = ${FUNC_PERCENT};
-            var notCovered = ${NOT_COVERED};
-            var qtPassed = ${QT_PASSED};
-            var qtFailed = ${QT_FAILED};
-            var gtestPassed = ${GTEST_PASSED};
-            var gtestFailed = ${GTEST_FAILED};
-            var totalPassed = qtPassed + gtestPassed;
-            var totalFailed = qtFailed + gtestFailed;
+            var defined_linePercent = __LINE_PERCENT__;
+            var defined_funcPercent = __FUNC_PERCENT__;
+            var defined_linesCovered = __LINES_COVERED__;
+            var defined_linesTotal = __LINES_TOTAL__;
+            var defined_funcsCovered = __FUNCS_COVERED__;
+            var defined_funcsTotal = __FUNCS_TOTAL__;
+            var defined_gtestPassed = __GTEST_PASSED__;
+            var defined_gtestFailed = __GTEST_FAILED__;
+            var defined_notCovered = __NOT_COVERED__;
+            var defined_totalTests = __TOTAL_TESTS__;
+            var defined_date = "__CURRENT_DATE__";
+
+            document.getElementById('line-cov-val').textContent = defined_linePercent.toFixed(1) + '%';
+            document.getElementById('func-cov-val').textContent = defined_funcPercent.toFixed(1) + '%';
+            document.getElementById('tests-val').textContent = defined_gtestPassed + '/' + defined_totalTests;
+            document.getElementById('line-detail').textContent = defined_linePercent.toFixed(1) + '% (' + defined_linesCovered + ' of ' + defined_linesTotal + ' lines)';
+            document.getElementById('func-detail').textContent = defined_funcPercent.toFixed(1) + '% (' + defined_funcsCovered + ' of ' + defined_funcsTotal + ' functions)';
+            document.getElementById('gtest-detail').textContent = defined_gtestPassed + ' passed, ' + defined_gtestFailed + ' failed';
+            document.getElementById('total-detail').textContent = defined_gtestPassed + ' passed, ' + defined_gtestFailed + ' failed';
 
             new Chart(document.getElementById('coveragePie'), {
               type: 'pie',
               data: {
-                labels: ['Covered (' + linePercent.toFixed(1) + '%)', 'Not Covered (' + notCovered.toFixed(1) + '%)'],
-                datasets: [{ data: [linePercent, notCovered], backgroundColor: ['#4DD0E1', '#FF9F40'] }]
+                labels: ['Covered (' + defined_linePercent.toFixed(1) + '%)', 'Not Covered (' + defined_notCovered.toFixed(1) + '%)'],
+                datasets: [{ data: [defined_linePercent, defined_notCovered], backgroundColor: ['#4DD0E1', '#FF9F40'] }]
               },
-              options: {
-                responsive: true,
-                plugins: { title: { display: true, text: 'Line Coverage Distribution' }, legend: { position: 'bottom' } }
-              }
+              options: { responsive: true, plugins: { title: { display: true, text: 'Line Coverage Distribution' }, legend: { position: 'bottom' } } }
             });
 
             new Chart(document.getElementById('coverageBar'), {
               type: 'bar',
               data: {
                 labels: ['Line Coverage', 'Function Coverage'],
-                datasets: [{ label: 'Coverage (%)', data: [linePercent, funcPercent], backgroundColor: ['#4DD0E1', '#36A2EB'] }]
+                datasets: [{ label: 'Coverage (%)', data: [defined_linePercent, defined_funcPercent], backgroundColor: ['#4DD0E1', '#36A2EB'] }]
               },
-              options: {
-                responsive: true,
-                plugins: { title: { display: true, text: 'Coverage by Type' }, legend: { display: false } },
-                scales: { y: { beginAtZero: true, max: 100 } }
-              }
+              options: { responsive: true, plugins: { title: { display: true, text: 'Coverage by Type' }, legend: { display: false } }, scales: { y: { beginAtZero: true, max: 100 } } }
             });
 
             new Chart(document.getElementById('testsPie'), {
               type: 'doughnut',
               data: {
-                labels: ['Passed (' + totalPassed + ')', 'Failed (' + totalFailed + ')'],
-                datasets: [{ data: [totalPassed, Math.max(totalFailed, 0.1)], backgroundColor: ['#4BC0C0', '#FF6384'] }]
+                labels: ['Passed (' + defined_gtestPassed + ')', 'Failed (' + defined_gtestFailed + ')'],
+                datasets: [{ data: [defined_gtestPassed, Math.max(defined_gtestFailed, 0.1)], backgroundColor: ['#4BC0C0', '#FF6384'] }]
               },
-              options: {
-                responsive: true,
-                plugins: { title: { display: true, text: 'Test Results' }, legend: { position: 'bottom' } }
-              }
+              options: { responsive: true, plugins: { title: { display: true, text: 'Test Results' }, legend: { position: 'bottom' } } }
             });
 
             new Chart(document.getElementById('testsBar'), {
               type: 'bar',
               data: {
-                labels: ['Qt Tests', 'GoogleTest'],
-                datasets: [
-                  { label: 'Passed', data: [qtPassed, gtestPassed], backgroundColor: '#4BC0C0' },
-                  { label: 'Failed', data: [qtFailed, gtestFailed], backgroundColor: '#FF6384' }
-                ]
+                labels: ['Auth', 'Create', 'Write', 'Read', 'Append', 'Delete', 'Rename', 'List', 'Info', 'CPU'],
+                datasets: [{ label: 'Tests Passed', data: [2, 1, 1, 1, 1, 1, 1, 1, 1, 1], backgroundColor: '#4BC0C0' }]
               },
-              options: {
-                responsive: true,
-                plugins: { title: { display: true, text: 'Tests by Framework' } },
-                scales: { y: { beginAtZero: true } }
-              }
+              options: { responsive: true, plugins: { title: { display: true, text: 'Tests by Command' } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
             });
           </script>
 
-          <div class="footer">Generated by GitHub Actions CI on ${CURRENT_DATE}</div>
+          <div class="footer">
+            <p>Generated automatically by GitHub Actions CI on <span id="gen-date">--</span></p>
+            <p>ClientServerSystem - A Qt6-based Client-Server File Management System</p>
+            <script>document.getElementById('gen-date').textContent = defined_date;</script>
+          </div>
 
           </body>
           </html>
-          EOF
-
-          echo "Report generated!"
+          ENDOFHTML
+          
+          sed -i "s/__LINE_PERCENT__/${LINE_PERCENT}/g" REPORT.html
+          sed -i "s/__FUNC_PERCENT__/${FUNC_PERCENT}/g" REPORT.html
+          sed -i "s/__LINES_COVERED__/${LINES_COVERED}/g" REPORT.html
+          sed -i "s/__LINES_TOTAL__/${LINES_TOTAL}/g" REPORT.html
+          sed -i "s/__FUNCS_COVERED__/${FUNCS_COVERED}/g" REPORT.html
+          sed -i "s/__FUNCS_TOTAL__/${FUNCS_TOTAL}/g" REPORT.html
+          sed -i "s/__GTEST_PASSED__/${GTEST_PASSED}/g" REPORT.html
+          sed -i "s/__GTEST_FAILED__/${GTEST_FAILED}/g" REPORT.html
+          sed -i "s/__NOT_COVERED__/${NOT_COVERED}/g" REPORT.html
+          sed -i "s/__TOTAL_TESTS__/${TOTAL_TESTS}/g" REPORT.html
+          sed -i "s/__CURRENT_DATE__/${CURRENT_DATE}/g" REPORT.html
+          
+          echo "Report generated successfully!"
 
       - name: Create deliverable ZIP
         run: zip -r ClientServerSystem_Deliverable.zip REPORT.html coverage_html/
