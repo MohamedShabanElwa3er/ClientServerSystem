@@ -1,20 +1,35 @@
+# =========================
 # Build artifacts
+# =========================
 *.o
 *.a
 *.moc
 moc_*.cpp
 Makefile
 .qmake.stash
+moc_predefs.h
 
-# Executables
+# =========================
+# Executables (ONLY binaries)
+# =========================
 server/server
 client/client
 tests/**/test_*/test_*
-moc_predefs.h
 
+# =========================
+# ✅ ALWAYS TRACK Qt project files
+# =========================
+!**/*.pro
+!**/*.pri
+!tests/**/
+
+# =========================
 # Qt Creator
+# =========================
 *.pro.user
 
+# =========================
 # OS files
+# =========================
 .DS_Store
 Thumbs.db
