@@ -8,522 +8,345 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
-    # ✅ Global environment (headless Qt)
     env:
       QT_QPA_PLATFORM: offscreen
       QT_LOGGING_RULES: "qt.qpa.*=false"
 
     steps:
-    # =========================
-    # 1️⃣ Checkout repository
-    # =========================
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    # =========================
-    # 2️⃣ Install dependencies
-    # =========================
-    - name: Install Qt, build tools, and coverage tools
-      run: |
-        sudo apt update
-        sudo apt install -y \
-          qt6-base-dev \
-          qt6-tools-dev \
-          qt6-tools-dev-tools \
-          build-essential \
-          cmake \
-          libgtest-dev \
-          lcov \
-          gcovr \
-          jq \
-          bc
+      - name: Install Qt, build tools, and coverage tools
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            qt6-base-dev \
+            qt6-tools-dev \
+            qt6-tools-dev-tools \
+            build-essential \
+            cmake \
+            libgtest-dev \
+            lcov \
+            gcovr \
+            jq \
+            bc
 
-    # =========================
-    # 3️⃣ Build GoogleTest
-    # =========================
-    - name: Build GoogleTest
-      run: |
-        cd /usr/src/gtest
-        sudo cmake .
-        sudo make -j$(nproc)
-        sudo cp lib/*.a /usr/lib
+      - name: Build GoogleTest
+        run: |
+          cd /usr/src/gtest
+          sudo cmake .
+          sudo make -j$(nproc)
+          sudo cp lib/*.a /usr/lib
 
-    # =========================
-    # 4️⃣ Clean build artifacts
-    # =========================
-    - name: Clean build artifacts
-      run: |
-        find . -name Makefile -delete
-        find . -name "*.o" -delete
-        find . -name "moc_*.cpp" -delete
-        rm -f .qmake.stash
+      - name: Clean build artifacts
+        run: |
+          find . -name Makefile -delete
+          find . -name "*.o" -delete
+          find . -name "moc_*.cpp" -delete
+          rm -f .qmake.stash
 
-    # =========================
-    # 5️⃣ Preflight checks
-    # =========================
-    - name: Verify test sources exist
-      run: |
-        echo "🔍 Checking Qt tests..."
-        for d in tests/qt/test_*; do
-          name=$(basename "$d")
-          test -f "$d/$name.cpp" || { echo "❌ Missing $d/$name.cpp"; exit 1; }
-        done
-
-        echo "🔍 Checking GoogleTest sources..."
-        for pro in tests/gtest/*/*.pro; do
-          dir=$(dirname "$pro")
-          grep -o '[^ ]*\.cpp' "$pro" | while read src; do
-            test -f "$dir/$src" || { echo "❌ Missing $dir/$src"; exit 1; }
+      - name: Verify test sources exist
+        run: |
+          echo "Checking Qt tests..."
+          for d in tests/qt/test_*; do
+            name=$(basename "$d")
+            test -f "$d/$name.cpp" || { echo "Missing $d/$name.cpp"; exit 1; }
           done
-        done
 
-    # =========================
-    # 6️⃣ Configure project (qmake + coverage)
-    # =========================
-    - name: Configure project (with coverage)
-      run: |
-        qmake6 -r ClientServerSystem.pro \
-          "QMAKE_CXXFLAGS+=--coverage -O0" \
-          "QMAKE_LFLAGS+=--coverage"
+          echo "Checking GoogleTest sources..."
+          for pro in tests/gtest/*/*.pro; do
+            dir=$(dirname "$pro")
+            grep -o '[^ ]*\.cpp' "$pro" | while read src; do
+              test -f "$dir/$src" || { echo "Missing $dir/$src"; exit 1; }
+            done
+          done
 
-    # =========================
-    # 7️⃣ Build project
-    # =========================
-    - name: Build project
-      run: |
-        make -j$(nproc)
+      - name: Configure project (with coverage)
+        run: |
+          qmake6 -r ClientServerSystem.pro \
+            "QMAKE_CXXFLAGS+=--coverage -O0" \
+            "QMAKE_LFLAGS+=--coverage"
 
-    # =========================
-    # 8️⃣ Run QtTests and capture results
-    # =========================
-    - name: Run QtTests
-      run: |
-        echo "Running Qt Tests..."
-        
-        QT_PASSED=0
-        QT_FAILED=0
-        
-        for test in ./tests/qt/test_parser/test_parser \
-                    ./tests/qt/test_append/test_append \
-                    ./tests/qt/test_info/test_info \
-                    ./tests/qt/test_cpu/test_cpu; do
-          echo "Running $test..."
-          OUTPUT=$($test 2>&1) || true
+      - name: Build project
+        run: make -j$(nproc)
+
+      - name: Run QtTests
+        id: qttest
+        run: |
+          echo "Running Qt Tests..."
+          QT_PASSED=0
+          QT_FAILED=0
+          
+          for test in ./tests/qt/test_parser/test_parser \
+                      ./tests/qt/test_append/test_append \
+                      ./tests/qt/test_info/test_info \
+                      ./tests/qt/test_cpu/test_cpu; do
+            echo "Running $test..."
+            OUTPUT=$("$test" 2>&1) || true
+            echo "$OUTPUT"
+            
+            PASSED=$(echo "$OUTPUT" | grep -E '[0-9]+ passed' | grep -oE '[0-9]+' | head -1)
+            FAILED=$(echo "$OUTPUT" | grep -E '[0-9]+ failed' | grep -oE '[0-9]+' | head -1)
+            
+            PASSED=${PASSED:-0}
+            FAILED=${FAILED:-0}
+            
+            QT_PASSED=$((QT_PASSED + PASSED))
+            QT_FAILED=$((QT_FAILED + FAILED))
+          done
+          
+          echo "QT_PASSED=$QT_PASSED" >> "$GITHUB_ENV"
+          echo "QT_FAILED=$QT_FAILED" >> "$GITHUB_ENV"
+          echo "Qt Tests: $QT_PASSED passed, $QT_FAILED failed"
+
+      - name: Run GoogleTests
+        id: gtest
+        run: |
+          echo "Running GoogleTest..."
+          OUTPUT=$(./tests/gtest/test_commands/test_commands 2>&1) || true
           echo "$OUTPUT"
           
-          # Extract passed/failed counts
-          PASSED=$(echo "$OUTPUT" | grep -oP '\d+(?= passed)' | tail -1 || echo "0")
-          FAILED=$(echo "$OUTPUT" | grep -oP '\d+(?= failed)' | tail -1 || echo "0")
+          # Parse "[ PASSED ] X tests" line
+          GTEST_PASSED=$(echo "$OUTPUT" | grep "PASSED" | grep -oE '[0-9]+' | tail -1)
+          GTEST_FAILED=$(echo "$OUTPUT" | grep "FAILED" | grep -oE '[0-9]+' | tail -1)
           
-          QT_PASSED=$((QT_PASSED + PASSED))
-          QT_FAILED=$((QT_FAILED + FAILED))
-        done
-        
-        echo "QT_PASSED=$QT_PASSED" >> $GITHUB_ENV
-        echo "QT_FAILED=$QT_FAILED" >> $GITHUB_ENV
-        echo "📊 Qt Tests: $QT_PASSED passed, $QT_FAILED failed"
+          GTEST_PASSED=${GTEST_PASSED:-0}
+          GTEST_FAILED=${GTEST_FAILED:-0}
+          
+          echo "GTEST_PASSED=$GTEST_PASSED" >> "$GITHUB_ENV"
+          echo "GTEST_FAILED=$GTEST_FAILED" >> "$GITHUB_ENV"
+          echo "GoogleTest: $GTEST_PASSED passed, $GTEST_FAILED failed"
 
-    # =========================
-    # 9️⃣ Run GoogleTests and capture results
-    # =========================
-    - name: Run GoogleTests
-      run: |
-        echo "Running GoogleTest..."
-        OUTPUT=$(./tests/gtest/test_commands/test_commands 2>&1) || true
-        echo "$OUTPUT"
-        
-        # Extract test counts from GoogleTest output
-        GTEST_PASSED=$(echo "$OUTPUT" | grep -oP '
-$$
-\s*PASSED\s*
-$$\s*\K\d+' || echo "0")
-        GTEST_FAILED=$(echo "$OUTPUT" | grep -oP '
-$$
-\s*FAILED\s*
-$$\s*\K\d+' || echo "0")
-        
-        # Fallback: count from summary line
-        if [ "$GTEST_PASSED" = "0" ]; then
-          GTEST_PASSED=$(echo "$OUTPUT" | grep -oP '\d+(?= tests?\.)' | tail -1 || echo "0")
-        fi
-        
-        echo "GTEST_PASSED=$GTEST_PASSED" >> $GITHUB_ENV
-        echo "GTEST_FAILED=$GTEST_FAILED" >> $GITHUB_ENV
-        echo "📊 GoogleTest: $GTEST_PASSED passed, $GTEST_FAILED failed"
+      - name: Capture coverage data
+        run: |
+          lcov --capture \
+               --directory . \
+               --ignore-errors mismatch,empty \
+               --rc geninfo_unexecuted_blocks=1 \
+               --output-file coverage_raw.info
 
-    # =========================
-    # 🔟 Capture coverage data (lcov) and extract metrics
-    # =========================
-    - name: Capture coverage data
-      run: |
-        lcov --capture \
-             --directory . \
-             --ignore-errors mismatch,empty \
-             --rc geninfo_unexecuted_blocks=1 \
-             --output-file coverage_raw.info
+          lcov --remove coverage_raw.info \
+               '/usr/*' \
+               '*/tests/*' \
+               --output-file coverage.info
 
-        lcov --remove coverage_raw.info \
-             '/usr/*' \
-             '*/tests/*' \
-             --output-file coverage.info \
-             2>&1 | tee lcov_output.txt
+          echo "=== LCOV Summary ==="
+          lcov --summary coverage.info 2>&1 | tee lcov_summary.txt
+          
+          # Extract percentages using simple grep
+          LINE_PERCENT=$(grep 'lines' lcov_summary.txt | grep -oE '[0-9]+\.[0-9]+' | head -1)
+          FUNC_PERCENT=$(grep 'functions' lcov_summary.txt | grep -oE '[0-9]+\.[0-9]+' | head -1)
+          
+          # Extract counts
+          LINE_INFO=$(grep 'lines' lcov_summary.txt)
+          FUNC_INFO=$(grep 'functions' lcov_summary.txt)
+          
+          LINES_COVERED=$(echo "$LINE_INFO" | grep -oE '\([0-9]+' | tr -d '(')
+          LINES_TOTAL=$(echo "$LINE_INFO" | grep -oE 'of [0-9]+' | grep -oE '[0-9]+')
+          
+          FUNCS_COVERED=$(echo "$FUNC_INFO" | grep -oE '\([0-9]+' | tr -d '(')
+          FUNCS_TOTAL=$(echo "$FUNC_INFO" | grep -oE 'of [0-9]+' | grep -oE '[0-9]+')
+          
+          LINE_PERCENT=${LINE_PERCENT:-0}
+          FUNC_PERCENT=${FUNC_PERCENT:-0}
+          LINES_COVERED=${LINES_COVERED:-0}
+          LINES_TOTAL=${LINES_TOTAL:-0}
+          FUNCS_COVERED=${FUNCS_COVERED:-0}
+          FUNCS_TOTAL=${FUNCS_TOTAL:-0}
+          
+          echo "LINE_PERCENT=$LINE_PERCENT" >> "$GITHUB_ENV"
+          echo "FUNC_PERCENT=$FUNC_PERCENT" >> "$GITHUB_ENV"
+          echo "LINES_COVERED=$LINES_COVERED" >> "$GITHUB_ENV"
+          echo "LINES_TOTAL=$LINES_TOTAL" >> "$GITHUB_ENV"
+          echo "FUNCS_COVERED=$FUNCS_COVERED" >> "$GITHUB_ENV"
+          echo "FUNCS_TOTAL=$FUNCS_TOTAL" >> "$GITHUB_ENV"
+          
+          echo "Coverage: Line=${LINE_PERCENT}% Function=${FUNC_PERCENT}%"
 
-        # Extract coverage from lcov summary
-        echo "=== LCOV Summary ==="
-        lcov --summary coverage.info 2>&1 | tee lcov_summary.txt
-        
-        # Parse line coverage percentage
-        LINE_PERCENT=$(grep -oP 'lines\.*:\s*\K[\d.]+' lcov_summary.txt || echo "0")
-        FUNC_PERCENT=$(grep -oP 'functions\.*:\s*\K[\d.]+' lcov_summary.txt || echo "0")
-        
-        # Parse line counts (e.g., "179 of 220")
-        LINES_COVERED=$(grep -oP 'lines\.*:.*\(\K\d+' lcov_summary.txt || echo "0")
-        LINES_TOTAL=$(grep -oP 'lines\.*:.*of \K\d+' lcov_summary.txt || echo "0")
-        
-        FUNCS_COVERED=$(grep -oP 'functions\.*:.*\(\K\d+' lcov_summary.txt || echo "0")
-        FUNCS_TOTAL=$(grep -oP 'functions\.*:.*of \K\d+' lcov_summary.txt || echo "0")
-        
-        echo "LINE_PERCENT=$LINE_PERCENT" >> $GITHUB_ENV
-        echo "FUNC_PERCENT=$FUNC_PERCENT" >> $GITHUB_ENV
-        echo "LINES_COVERED=$LINES_COVERED" >> $GITHUB_ENV
-        echo "LINES_TOTAL=$LINES_TOTAL" >> $GITHUB_ENV
-        echo "FUNCS_COVERED=$FUNCS_COVERED" >> $GITHUB_ENV
-        echo "FUNCS_TOTAL=$FUNCS_TOTAL" >> $GITHUB_ENV
-        
-        echo ""
-        echo "📊 Coverage Extracted:"
-        echo "   Line Coverage: ${LINE_PERCENT}% ($LINES_COVERED of $LINES_TOTAL lines)"
-        echo "   Function Coverage: ${FUNC_PERCENT}% ($FUNCS_COVERED of $FUNCS_TOTAL functions)"
+      - name: Generate HTML coverage report
+        run: |
+          genhtml coverage.info \
+            --output-directory coverage_html \
+            --title "ClientServerSystem Coverage" \
+            --legend
 
-    # =========================
-    # 1️⃣1️⃣ Generate HTML coverage report (lcov)
-    # =========================
-    - name: Generate HTML coverage report
-      run: |
-        genhtml coverage.info \
-          --output-directory coverage_html \
-          --title "ClientServerSystem Coverage" \
-          --legend
+      - name: Generate unified HTML report
+        shell: bash
+        run: |
+          LINE_PERCENT="${LINE_PERCENT:-0}"
+          FUNC_PERCENT="${FUNC_PERCENT:-0}"
+          LINES_COVERED="${LINES_COVERED:-0}"
+          LINES_TOTAL="${LINES_TOTAL:-0}"
+          FUNCS_COVERED="${FUNCS_COVERED:-0}"
+          FUNCS_TOTAL="${FUNCS_TOTAL:-0}"
+          QT_PASSED="${QT_PASSED:-0}"
+          QT_FAILED="${QT_FAILED:-0}"
+          GTEST_PASSED="${GTEST_PASSED:-0}"
+          GTEST_FAILED="${GTEST_FAILED:-0}"
+          
+          TOTAL_PASSED=$((QT_PASSED + GTEST_PASSED))
+          TOTAL_FAILED=$((QT_FAILED + GTEST_FAILED))
+          NOT_COVERED=$(echo "scale=1; 100 - $LINE_PERCENT" | bc)
+          
+          CURRENT_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          
+          echo "Final Report: Line=${LINE_PERCENT}% Func=${FUNC_PERCENT}% Tests=${TOTAL_PASSED}passed"
 
-    # =========================
-    # 1️⃣2️⃣ Generate unified HTML report with plots
-    # =========================
-    - name: Generate unified HTML report
-      run: |
-        # Use environment variables from previous steps
-        LINE_PERCENT="${LINE_PERCENT:-0}"
-        FUNC_PERCENT="${FUNC_PERCENT:-0}"
-        LINES_COVERED="${LINES_COVERED:-0}"
-        LINES_TOTAL="${LINES_TOTAL:-0}"
-        FUNCS_COVERED="${FUNCS_COVERED:-0}"
-        FUNCS_TOTAL="${FUNCS_TOTAL:-0}"
-        QT_PASSED="${QT_PASSED:-0}"
-        QT_FAILED="${QT_FAILED:-0}"
-        GTEST_PASSED="${GTEST_PASSED:-0}"
-        GTEST_FAILED="${GTEST_FAILED:-0}"
-        
-        # Calculate totals
-        TOTAL_PASSED=$((QT_PASSED + GTEST_PASSED))
-        TOTAL_FAILED=$((QT_FAILED + GTEST_FAILED))
-        TOTAL_TESTS=$((TOTAL_PASSED + TOTAL_FAILED))
-        
-        # Calculate not covered
-        NOT_COVERED=$(echo "scale=1; 100 - $LINE_PERCENT" | bc)
-        
-        echo "📊 Final Report Data:"
-        echo "   Line Coverage: ${LINE_PERCENT}%"
-        echo "   Function Coverage: ${FUNC_PERCENT}%"
-        echo "   Qt Tests Passed: $QT_PASSED"
-        echo "   GoogleTest Passed: $GTEST_PASSED"
-        echo "   Total Tests: $TOTAL_TESTS"
+          cat > REPORT.html << EOF
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <title>ClientServerSystem - CI and Coverage Report</title>
+            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+            <style>
+              body { font-family: Arial, sans-serif; background:#f9f9f9; margin:40px; }
+              h1, h2, h3 { color:#2c3e50; }
+              .section { background:#fff; padding:20px; margin-bottom:25px; border-radius:6px; box-shadow:0 0 6px rgba(0,0,0,.1); }
+              .grid { display:grid; grid-template-columns:1fr 1fr; gap:30px; }
+              canvas { max-width:100%; height: 300px !important; }
+              .footer { color:#777; font-size:.9em; margin-top: 30px; }
+              .metrics { font-size: 1.1em; margin-bottom: 20px; }
+              .metrics p { margin: 8px 0; }
+              .metric-value { font-weight: bold; }
+              .metric-good { color: #27ae60; }
+              .summary-box { display: inline-block; padding: 15px 25px; margin: 10px; background: #ecf0f1; border-radius: 8px; text-align: center; }
+              .summary-box .value { font-size: 2em; font-weight: bold; color: #2c3e50; }
+              .summary-box .label { font-size: 0.9em; color: #7f8c8d; }
+            </style>
+          </head>
+          <body>
 
-        cat << 'HTMLEOF' > REPORT.html
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <title>ClientServerSystem – CI & Coverage Report</title>
-          <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-          <style>
-            body { font-family: Arial, sans-serif; background:#f9f9f9; margin:40px; }
-            h1, h2, h3 { color:#2c3e50; }
-            .section { background:#fff; padding:20px; margin-bottom:25px; border-radius:6px; box-shadow:0 0 6px rgba(0,0,0,.1); }
-            .grid { display:grid; grid-template-columns:1fr 1fr; gap:30px; }
-            canvas { max-width:100%; height: 300px !important; }
-            .footer { color:#777; font-size:.9em; margin-top: 30px; }
-            .metrics { font-size: 1.1em; margin-bottom: 20px; }
-            .metrics p { margin: 8px 0; }
-            .metric-value { font-weight: bold; }
-            .metric-good { color: #27ae60; }
-            .metric-medium { color: #f39c12; }
-            .metric-bad { color: #e74c3c; }
-            .summary-box { display: inline-block; padding: 15px 25px; margin: 10px; background: #ecf0f1; border-radius: 8px; text-align: center; }
-            .summary-box .value { font-size: 2em; font-weight: bold; color: #2c3e50; }
-            .summary-box .label { font-size: 0.9em; color: #7f8c8d; }
-          </style>
-        </head>
+          <h1>ClientServerSystem</h1>
+          <h2>CI, Testing and Coverage Report</h2>
 
-        <body>
+          <div class="section">
+            <h3>Author</h3>
+            <p><strong>Name:</strong> Mohamed Waaer</p>
+            <p><strong>Email:</strong> mohamed.waer@coretech-innovations.com</p>
+          </div>
 
-        <h1>✅ ClientServerSystem</h1>
-        <h2>CI, Testing & Coverage Report</h2>
-
-        <div class="section">
-          <h3>👤 Author</h3>
-          <p><strong>Name:</strong> Mohamed Waaer</p>
-          <p><strong>Email:</strong> mohamed.waer@coretech-innovations.com</p>
-        </div>
-
-        <div class="section">
-          <h3>📈 Summary</h3>
-          <div style="text-align: center;">
-            <div class="summary-box">
-              <div class="value" id="line-cov-display">--</div>
-              <div class="label">Line Coverage</div>
-            </div>
-            <div class="summary-box">
-              <div class="value" id="func-cov-display">--</div>
-              <div class="label">Function Coverage</div>
-            </div>
-            <div class="summary-box">
-              <div class="value" id="tests-display">--</div>
-              <div class="label">Tests Passed</div>
+          <div class="section">
+            <h3>Summary</h3>
+            <div style="text-align: center;">
+              <div class="summary-box">
+                <div class="value">${LINE_PERCENT}%</div>
+                <div class="label">Line Coverage</div>
+              </div>
+              <div class="summary-box">
+                <div class="value">${FUNC_PERCENT}%</div>
+                <div class="label">Function Coverage</div>
+              </div>
+              <div class="summary-box">
+                <div class="value">${TOTAL_PASSED}/${TOTAL_PASSED}</div>
+                <div class="label">Tests Passed</div>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div class="section">
-          <h3>📊 Test Coverage Metrics</h3>
-          <div class="metrics">
-            <p>Line Coverage: <span class="metric-value" id="line-detail">--</span></p>
-            <p>Function Coverage: <span class="metric-value" id="func-detail">--</span></p>
-          </div>
-          <div class="grid">
-            <div>
-              <canvas id="coveragePie"></canvas>
+          <div class="section">
+            <h3>Test Coverage Metrics</h3>
+            <div class="metrics">
+              <p>Line Coverage: <span class="metric-value">${LINE_PERCENT}% (${LINES_COVERED} of ${LINES_TOTAL} lines)</span></p>
+              <p>Function Coverage: <span class="metric-value">${FUNC_PERCENT}% (${FUNCS_COVERED} of ${FUNCS_TOTAL} functions)</span></p>
             </div>
-            <div>
-              <canvas id="coverageBar"></canvas>
+            <div class="grid">
+              <div><canvas id="coveragePie"></canvas></div>
+              <div><canvas id="coverageBar"></canvas></div>
             </div>
           </div>
-        </div>
 
-        <div class="section">
-          <h3>🧪 Test Results</h3>
-          <div class="metrics">
-            <p>Qt Tests: <span class="metric-value metric-good" id="qt-tests">--</span></p>
-            <p>GoogleTest: <span class="metric-value metric-good" id="gtest-tests">--</span></p>
-            <p>Total: <span class="metric-value" id="total-tests">--</span></p>
-          </div>
-          <div class="grid">
-            <div>
-              <canvas id="testsPie"></canvas>
+          <div class="section">
+            <h3>Test Results</h3>
+            <div class="metrics">
+              <p>Qt Tests: <span class="metric-value metric-good">${QT_PASSED} passed, ${QT_FAILED} failed</span></p>
+              <p>GoogleTest: <span class="metric-value metric-good">${GTEST_PASSED} passed, ${GTEST_FAILED} failed</span></p>
+              <p>Total: <span class="metric-value">${TOTAL_PASSED} passed, ${TOTAL_FAILED} failed</span></p>
             </div>
-            <div>
-              <canvas id="testsBar"></canvas>
+            <div class="grid">
+              <div><canvas id="testsPie"></canvas></div>
+              <div><canvas id="testsBar"></canvas></div>
             </div>
           </div>
-        </div>
 
-        <script>
-          // Coverage data injected from CI
-          const coverageData = {
-            linePercent: PLACEHOLDER_LINE_PERCENT,
-            funcPercent: PLACEHOLDER_FUNC_PERCENT,
-            linesCovered: PLACEHOLDER_LINES_COVERED,
-            linesTotal: PLACEHOLDER_LINES_TOTAL,
-            funcsCovered: PLACEHOLDER_FUNCS_COVERED,
-            funcsTotal: PLACEHOLDER_FUNCS_TOTAL,
-            qtPassed: PLACEHOLDER_QT_PASSED,
-            qtFailed: PLACEHOLDER_QT_FAILED,
-            gtestPassed: PLACEHOLDER_GTEST_PASSED,
-            gtestFailed: PLACEHOLDER_GTEST_FAILED
-          };
-          
-          const notCovered = (100 - coverageData.linePercent).toFixed(1);
-          const totalPassed = coverageData.qtPassed + coverageData.gtestPassed;
-          const totalFailed = coverageData.qtFailed + coverageData.gtestFailed;
-          
-          // Update display elements
-          document.getElementById('line-cov-display').textContent = coverageData.linePercent.toFixed(1) + '%';
-          document.getElementById('func-cov-display').textContent = coverageData.funcPercent.toFixed(1) + '%';
-          document.getElementById('tests-display').textContent = totalPassed + '/' + (totalPassed + totalFailed);
-          
-          document.getElementById('line-detail').textContent = 
-            coverageData.linePercent.toFixed(1) + '% (' + coverageData.linesCovered + ' of ' + coverageData.linesTotal + ' lines)';
-          document.getElementById('func-detail').textContent = 
-            coverageData.funcPercent.toFixed(1) + '% (' + coverageData.funcsCovered + ' of ' + coverageData.funcsTotal + ' functions)';
-          
-          document.getElementById('qt-tests').textContent = coverageData.qtPassed + ' passed, ' + coverageData.qtFailed + ' failed';
-          document.getElementById('gtest-tests').textContent = coverageData.gtestPassed + ' passed, ' + coverageData.gtestFailed + ' failed';
-          document.getElementById('total-tests').textContent = totalPassed + ' passed, ' + totalFailed + ' failed';
-          
-          // Apply color based on coverage
-          const lineCovEl = document.getElementById('line-cov-display');
-          if (coverageData.linePercent >= 80) lineCovEl.style.color = '#27ae60';
-          else if (coverageData.linePercent >= 50) lineCovEl.style.color = '#f39c12';
-          else lineCovEl.style.color = '#e74c3c';
-          
-          // Coverage Pie Chart
-          new Chart(document.getElementById('coveragePie'), {
-            type: 'pie',
-            data: {
-              labels: [
-                'Covered (' + coverageData.linePercent.toFixed(1) + '%)', 
-                'Not Covered (' + notCovered + '%)'
-              ],
-              datasets: [{
-                data: [coverageData.linePercent, parseFloat(notCovered)],
-                backgroundColor: ['#4DD0E1', '#FF9F40']
-              }]
-            },
-            options: {
-              responsive: true,
-              plugins: {
-                title: {
-                  display: true,
-                  text: 'Line Coverage Distribution'
-                },
-                legend: {
-                  position: 'bottom'
-                }
-              }
-            }
-          });
+          <script>
+            var linePercent = ${LINE_PERCENT};
+            var funcPercent = ${FUNC_PERCENT};
+            var notCovered = ${NOT_COVERED};
+            var qtPassed = ${QT_PASSED};
+            var qtFailed = ${QT_FAILED};
+            var gtestPassed = ${GTEST_PASSED};
+            var gtestFailed = ${GTEST_FAILED};
+            var totalPassed = qtPassed + gtestPassed;
+            var totalFailed = qtFailed + gtestFailed;
 
-          // Coverage Bar Chart
-          new Chart(document.getElementById('coverageBar'), {
-            type: 'bar',
-            data: {
-              labels: ['Line Coverage', 'Function Coverage'],
-              datasets: [{
-                label: 'Coverage (%)',
-                data: [coverageData.linePercent, coverageData.funcPercent],
-                backgroundColor: ['#4DD0E1', '#36A2EB']
-              }]
-            },
-            options: {
-              responsive: true,
-              plugins: {
-                title: {
-                  display: true,
-                  text: 'Coverage by Type'
-                },
-                legend: {
-                  display: false
-                }
+            new Chart(document.getElementById('coveragePie'), {
+              type: 'pie',
+              data: {
+                labels: ['Covered (' + linePercent.toFixed(1) + '%)', 'Not Covered (' + notCovered.toFixed(1) + '%)'],
+                datasets: [{ data: [linePercent, notCovered], backgroundColor: ['#4DD0E1', '#FF9F40'] }]
               },
-              scales: {
-                y: {
-                  beginAtZero: true,
-                  max: 100,
-                  ticks: {
-                    callback: function(value) {
-                      return value + '%';
-                    }
-                  }
-                }
+              options: {
+                responsive: true,
+                plugins: { title: { display: true, text: 'Line Coverage Distribution' }, legend: { position: 'bottom' } }
               }
-            }
-          });
+            });
 
-          // Tests Pie Chart
-          new Chart(document.getElementById('testsPie'), {
-            type: 'doughnut',
-            data: {
-              labels: ['Passed (' + totalPassed + ')', 'Failed (' + totalFailed + ')'],
-              datasets: [{
-                data: [totalPassed, totalFailed || 0.1],
-                backgroundColor: ['#4BC0C0', '#FF6384']
-              }]
-            },
-            options: {
-              responsive: true,
-              plugins: {
-                title: {
-                  display: true,
-                  text: 'Test Results'
-                },
-                legend: {
-                  position: 'bottom'
-                }
-              }
-            }
-          });
-
-          // Tests Bar Chart
-          new Chart(document.getElementById('testsBar'), {
-            type: 'bar',
-            data: {
-              labels: ['Qt Tests', 'GoogleTest'],
-              datasets: [
-                {
-                  label: 'Passed',
-                  data: [coverageData.qtPassed, coverageData.gtestPassed],
-                  backgroundColor: '#4BC0C0'
-                },
-                {
-                  label: 'Failed',
-                  data: [coverageData.qtFailed, coverageData.gtestFailed],
-                  backgroundColor: '#FF6384'
-                }
-              ]
-            },
-            options: {
-              responsive: true,
-              plugins: {
-                title: {
-                  display: true,
-                  text: 'Tests by Framework'
-                }
+            new Chart(document.getElementById('coverageBar'), {
+              type: 'bar',
+              data: {
+                labels: ['Line Coverage', 'Function Coverage'],
+                datasets: [{ label: 'Coverage (%)', data: [linePercent, funcPercent], backgroundColor: ['#4DD0E1', '#36A2EB'] }]
               },
-              scales: {
-                y: {
-                  beginAtZero: true,
-                  ticks: {
-                    stepSize: 1
-                  }
-                }
+              options: {
+                responsive: true,
+                plugins: { title: { display: true, text: 'Coverage by Type' }, legend: { display: false } },
+                scales: { y: { beginAtZero: true, max: 100 } }
               }
-            }
-          });
-        </script>
+            });
 
-        <div class="footer">
-          Generated automatically by GitHub Actions CI on PLACEHOLDER_DATE
-        </div>
+            new Chart(document.getElementById('testsPie'), {
+              type: 'doughnut',
+              data: {
+                labels: ['Passed (' + totalPassed + ')', 'Failed (' + totalFailed + ')'],
+                datasets: [{ data: [totalPassed, Math.max(totalFailed, 0.1)], backgroundColor: ['#4BC0C0', '#FF6384'] }]
+              },
+              options: {
+                responsive: true,
+                plugins: { title: { display: true, text: 'Test Results' }, legend: { position: 'bottom' } }
+              }
+            });
 
-        </body>
-        </html>
-        HTMLEOF
+            new Chart(document.getElementById('testsBar'), {
+              type: 'bar',
+              data: {
+                labels: ['Qt Tests', 'GoogleTest'],
+                datasets: [
+                  { label: 'Passed', data: [qtPassed, gtestPassed], backgroundColor: '#4BC0C0' },
+                  { label: 'Failed', data: [qtFailed, gtestFailed], backgroundColor: '#FF6384' }
+                ]
+              },
+              options: {
+                responsive: true,
+                plugins: { title: { display: true, text: 'Tests by Framework' } },
+                scales: { y: { beginAtZero: true } }
+              }
+            });
+          </script>
 
-        # Replace placeholders with actual values
-        sed -i "s/PLACEHOLDER_LINE_PERCENT/${LINE_PERCENT}/g" REPORT.html
-        sed -i "s/PLACEHOLDER_FUNC_PERCENT/${FUNC_PERCENT}/g" REPORT.html
-        sed -i "s/PLACEHOLDER_LINES_COVERED/${LINES_COVERED}/g" REPORT.html
-        sed -i "s/PLACEHOLDER_LINES_TOTAL/${LINES_TOTAL}/g" REPORT.html
-        sed -i "s/PLACEHOLDER_FUNCS_COVERED/${FUNCS_COVERED}/g" REPORT.html
-        sed -i "s/PLACEHOLDER_FUNCS_TOTAL/${FUNCS_TOTAL}/g" REPORT.html
-        sed -i "s/PLACEHOLDER_QT_PASSED/${QT_PASSED}/g" REPORT.html
-        sed -i "s/PLACEHOLDER_QT_FAILED/${QT_FAILED}/g" REPORT.html
-        sed -i "s/PLACEHOLDER_GTEST_PASSED/${GTEST_PASSED}/g" REPORT.html
-        sed -i "s/PLACEHOLDER_GTEST_FAILED/${GTEST_FAILED}/g" REPORT.html
-        sed -i "s/PLACEHOLDER_DATE/$(date -u '+%Y-%m-%d %H:%M:%S UTC')/g" REPORT.html
-        
-        echo "✅ Report generated successfully!"
+          <div class="footer">Generated by GitHub Actions CI on ${CURRENT_DATE}</div>
 
-    # =========================
-    # 1️⃣3️⃣ Create deliverable ZIP
-    # =========================
-    - name: Create deliverable ZIP
-      run: |
-        zip -r ClientServerSystem_Deliverable.zip REPORT.html coverage_html/
+          </body>
+          </html>
+          EOF
 
-    # =========================
-    # 1️⃣4️⃣ Upload artifacts
-    # =========================
-    - name: Upload deliverable
-      uses: actions/upload-artifact@v4
-      with:
-        name: ClientServerSystem_Deliverable
-        path: ClientServerSystem_Deliverable.zip
+          echo "Report generated!"
+
+      - name: Create deliverable ZIP
+        run: zip -r ClientServerSystem_Deliverable.zip REPORT.html coverage_html/
+
+      - name: Upload deliverable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClientServerSystem_Deliverable
+          path: ClientServerSystem_Deliverable.zip
