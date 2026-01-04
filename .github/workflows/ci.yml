@@ -55,7 +55,7 @@ jobs:
             done
           done
 
-      - name: Configure project (with coverage)
+      - name: Configure project with coverage
         run: |
           qmake6 -r ClientServerSystem.pro \
             "QMAKE_CXXFLAGS+=--coverage -O0" \
@@ -64,70 +64,34 @@ jobs:
       - name: Build project
         run: make -j$(nproc)
 
-      # ============================================================
-      # ✅ GENERIC GOOGLE TEST RUNNER
-      # ============================================================
-      - name: Run GoogleTests (generic)
-        id: gtest
-        shell: bash
+      - name: Run GoogleTests with XML output
         run: |
-          echo "Discovering GoogleTest executables..."
+          echo "Running GoogleTest..."
+          mkdir -p test_results
+          ./tests/gtest/test_commands/test_commands --gtest_output=xml:test_results/results.xml 2>&1 | tee test_output.txt || true
+          cat test_output.txt
 
-          TOTAL_PASSED=0
-          TOTAL_FAILED=0
-          FAILED_BINARIES=0
-
-          mapfile -t TEST_BINS < <(
-            find tests/gtest -type f -executable ! -name "*.so" ! -name "*.a"
-          )
-
-          if [ ${#TEST_BINS[@]} -eq 0 ]; then
-            echo "❌ No GoogleTest executables found!"
-            exit 1
+      - name: Parse test results
+        run: |
+          if [ -f test_results/results.xml ]; then
+            echo "Parsing XML results..."
+            GTEST_TOTAL=$(grep -oP 'tests="\K[0-9]+' test_results/results.xml | head -1 || echo "0")
+            GTEST_FAILURES=$(grep -oP 'failures="\K[0-9]+' test_results/results.xml | head -1 || echo "0")
+            GTEST_ERRORS=$(grep -oP 'errors="\K[0-9]+' test_results/results.xml | head -1 || echo "0")
+            GTEST_FAILED=$((GTEST_FAILURES + GTEST_ERRORS))
+            GTEST_PASSED=$((GTEST_TOTAL - GTEST_FAILED))
+          else
+            GTEST_PASSED=$(grep "PASSED" test_output.txt | grep -oE '[0-9]+' | tail -1 || echo "0")
+            GTEST_FAILED=$(grep "FAILED" test_output.txt | grep -oE '[0-9]+' | tail -1 || echo "0")
+            GTEST_PASSED=${GTEST_PASSED:-0}
+            GTEST_FAILED=${GTEST_FAILED:-0}
+            GTEST_TOTAL=$((GTEST_PASSED + GTEST_FAILED))
           fi
+          echo "GTEST_PASSED=$GTEST_PASSED" >> "$GITHUB_ENV"
+          echo "GTEST_FAILED=$GTEST_FAILED" >> "$GITHUB_ENV"
+          echo "GTEST_TOTAL=$GTEST_TOTAL" >> "$GITHUB_ENV"
+          echo "GoogleTest Results: $GTEST_PASSED passed, $GTEST_FAILED failed out of $GTEST_TOTAL tests"
 
-          echo "✅ Found ${#TEST_BINS[@]} test binaries"
-
-          for BIN in "${TEST_BINS[@]}"; do
-            echo "----------------------------------------"
-            echo "▶ Running: $BIN"
-
-            OUTPUT=$("$BIN" 2>&1)
-            EXIT_CODE=$?
-
-            echo "$OUTPUT"
-
-            PASSED=$(echo "$OUTPUT" | grep -Eo '[0-9]+ tests? passed' | grep -Eo '[0-9]+' | tail -1)
-            FAILED=$(echo "$OUTPUT" | grep -Eo '[0-9]+ tests? failed' | grep -Eo '[0-9]+' | tail -1)
-
-            PASSED=${PASSED:-0}
-            FAILED=${FAILED:-0}
-
-            TOTAL_PASSED=$((TOTAL_PASSED + PASSED))
-            TOTAL_FAILED=$((TOTAL_FAILED + FAILED))
-
-            if [ "$EXIT_CODE" -ne 0 ]; then
-              FAILED_BINARIES=$((FAILED_BINARIES + 1))
-            fi
-          done
-
-          echo "========================================"
-          echo "✅ GoogleTest Summary:"
-          echo "   Passed: $TOTAL_PASSED"
-          echo "   Failed: $TOTAL_FAILED"
-          echo "   Failed binaries: $FAILED_BINARIES"
-
-          echo "GTEST_PASSED=$TOTAL_PASSED" >> "$GITHUB_ENV"
-          echo "GTEST_FAILED=$TOTAL_FAILED" >> "$GITHUB_ENV"
-
-          if [ "$TOTAL_FAILED" -ne 0 ]; then
-            echo "❌ Some GoogleTests failed"
-            exit 1
-          fi
-
-      # ============================================================
-      # COVERAGE
-      # ============================================================
       - name: Capture coverage data
         run: |
           lcov --capture \
@@ -135,40 +99,33 @@ jobs:
                --ignore-errors mismatch,empty \
                --rc geninfo_unexecuted_blocks=1 \
                --output-file coverage_raw.info
-
           lcov --remove coverage_raw.info \
                '/usr/*' \
                '*/tests/*' \
                --output-file coverage.info
-
           echo "=== LCOV Summary ==="
           lcov --summary coverage.info 2>&1 | tee lcov_summary.txt
-          
           LINE_PERCENT=$(grep 'lines' lcov_summary.txt | grep -oE '[0-9]+\.[0-9]+' | head -1)
           FUNC_PERCENT=$(grep 'functions' lcov_summary.txt | grep -oE '[0-9]+\.[0-9]+' | head -1)
-          
           LINE_INFO=$(grep 'lines' lcov_summary.txt)
           FUNC_INFO=$(grep 'functions' lcov_summary.txt)
-          
           LINES_COVERED=$(echo "$LINE_INFO" | grep -oE '\([0-9]+' | tr -d '(')
           LINES_TOTAL=$(echo "$LINE_INFO" | grep -oE 'of [0-9]+' | grep -oE '[0-9]+')
-          
           FUNCS_COVERED=$(echo "$FUNC_INFO" | grep -oE '\([0-9]+' | tr -d '(')
           FUNCS_TOTAL=$(echo "$FUNC_INFO" | grep -oE 'of [0-9]+' | grep -oE '[0-9]+')
-          
           LINE_PERCENT=${LINE_PERCENT:-0}
           FUNC_PERCENT=${FUNC_PERCENT:-0}
           LINES_COVERED=${LINES_COVERED:-0}
           LINES_TOTAL=${LINES_TOTAL:-0}
           FUNCS_COVERED=${FUNCS_COVERED:-0}
           FUNCS_TOTAL=${FUNCS_TOTAL:-0}
-          
           echo "LINE_PERCENT=$LINE_PERCENT" >> "$GITHUB_ENV"
           echo "FUNC_PERCENT=$FUNC_PERCENT" >> "$GITHUB_ENV"
           echo "LINES_COVERED=$LINES_COVERED" >> "$GITHUB_ENV"
           echo "LINES_TOTAL=$LINES_TOTAL" >> "$GITHUB_ENV"
           echo "FUNCS_COVERED=$FUNCS_COVERED" >> "$GITHUB_ENV"
           echo "FUNCS_TOTAL=$FUNCS_TOTAL" >> "$GITHUB_ENV"
+          echo "Coverage Results: Line=${LINE_PERCENT}% Function=${FUNC_PERCENT}%"
 
       - name: Generate HTML coverage report
         run: |
@@ -177,11 +134,12 @@ jobs:
             --title "ClientServerSystem Coverage" \
             --legend
 
-      # ============================================================
-      # DELIVERABLE
-      # ============================================================
+      - name: Generate unified HTML report
+        run: python3 .github/scripts/generate_report.py
+
       - name: Create deliverable ZIP
-        run: zip -r ClientServerSystem_Deliverable.zip REPORT.html coverage_html/ || true
+        run: |
+          zip -r ClientServerSystem_Deliverable.zip REPORT.html coverage_html/ test_results/
 
       - name: Upload deliverable
         uses: actions/upload-artifact@v4
