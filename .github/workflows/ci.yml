@@ -33,17 +33,31 @@ jobs:
         sudo make
         sudo cp lib/*.a /usr/lib
 
-    # 4️⃣ Configure project with qmake6
+    # 4️⃣ Clean previous build artifacts (VERY IMPORTANT)
+    - name: Clean build artifacts
+      run: |
+        find . -name Makefile -delete
+        rm -f .qmake.stash
+
+    # 5️⃣ Configure project (recursive)
     - name: Configure project
       run: |
         qmake6 -r ClientServerSystem.pro
 
-    # 5️⃣ Build project
+    # 6️⃣ Build project (SEQUENTIAL to avoid race)
     - name: Build project
       run: |
-        make -V
+        make -j1
 
-    # 6️⃣ Run QtTest tests
+    # 7️⃣ Verify build outputs (sanity check)
+    - name: Verify build outputs
+      run: |
+        ls -R server
+        ls -R client
+        ls -R tests/qt
+        ls -R tests/gtest
+
+    # 8️⃣ Run QtTest tests
     - name: Run QtTests
       run: |
         ./tests/qt/test_parser/test_parser
@@ -51,7 +65,7 @@ jobs:
         ./tests/qt/test_info/test_info
         ./tests/qt/test_cpu/test_cpu
 
-    # 7️⃣ Run GoogleTests
+    # 9️⃣ Run GoogleTests
     - name: Run GoogleTests
       run: |
         ./tests/gtest/test_commands/test_commands
