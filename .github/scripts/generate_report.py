@@ -75,7 +75,7 @@ def parse_text():
     chart_passed = []
     chart_failed = []
     
-    # Find all test suites
+    # Find all test suites using a pattern that matches GoogleTest output
     suite_pattern = r'
 $$
 ----------
@@ -84,18 +84,19 @@ $$ \d+ tests? from (\w+)'
     suites = list(dict.fromkeys(suites))
     
     for suite_name in suites:
+        # Build patterns for this suite
         run_pattern = r'
 $$
  RUN      
-$$ ' + suite_name + r'\.(\w+)'
+$$ ' + re.escape(suite_name) + r'\.(\w+)'
         ok_pattern = r'
 $$
        OK 
-$$ ' + suite_name + r'\.(\w+)'
+$$ ' + re.escape(suite_name) + r'\.(\w+)'
         fail_pattern = r'
 $$
   FAILED  
-$$ ' + suite_name + r'\.(\w+)'
+$$ ' + re.escape(suite_name) + r'\.(\w+)'
         
         runs = re.findall(run_pattern, content)
         oks = re.findall(ok_pattern, content)
@@ -146,68 +147,67 @@ def generate_html(test_data, line_percent, func_percent, lines_covered, lines_to
     for i, suite in enumerate(test_data['test_suites']):
         status_class = 'status-passed' if suite['status'] == 'PASSED' else 'status-failed'
         
-        # Main row
-        suites_html += f'''<tr class="expandable" onclick="toggleDetails({i})">
-            <td><span class="toggle-icon" id="icon-{i}">[+]</span>{suite['name']}</td>
-            <td>{suite['description']}</td>
-            <td style="text-align: center;">{suite['passed']}/{suite['tests']}</td>
-            <td style="text-align: center;" class="{status_class}">{suite['status']}</td>
-        </tr>'''
+        suites_html += '<tr class="expandable" onclick="toggleDetails({0})">'.format(i)
+        suites_html += '<td><span class="toggle-icon" id="icon-{0}">[+]</span>{1}</td>'.format(i, suite['name'])
+        suites_html += '<td>{0}</td>'.format(suite['description'])
+        suites_html += '<td style="text-align: center;">{0}/{1}</td>'.format(suite['passed'], suite['tests'])
+        suites_html += '<td style="text-align: center;" class="{0}">{1}</td>'.format(status_class, suite['status'])
+        suites_html += '</tr>'
         
         # Details row
         test_cases_html = '<ul class="test-case-list">'
         for tc in suite['test_cases']:
             tc_class = 'status-passed' if tc['status'] == 'PASSED' else 'status-failed'
-            test_cases_html += f'<li><span class="{tc_class}">[{tc["status"]}]</span> {tc["name"]}</li>'
+            test_cases_html += '<li><span class="{0}">[{1}]</span> {2}</li>'.format(tc_class, tc['status'], tc['name'])
         test_cases_html += '</ul>'
         
-        suites_html += f'''<tr id="details-{i}" class="test-details">
-            <td colspan="4">{test_cases_html}</td>
-        </tr>'''
+        suites_html += '<tr id="details-{0}" class="test-details">'.format(i)
+        suites_html += '<td colspan="4">{0}</td>'.format(test_cases_html)
+        suites_html += '</tr>'
     
-    html = f'''<!DOCTYPE html>
+    html = '''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>ClientServerSystem - CI and Coverage Report</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body {{ font-family: Arial, sans-serif; background: #f9f9f9; margin: 40px; }}
-        h1, h2, h3, h4 {{ color: #2c3e50; }}
-        .section {{ background: #fff; padding: 20px; margin-bottom: 25px; border-radius: 6px; box-shadow: 0 0 6px rgba(0,0,0,.1); }}
-        .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }}
-        canvas {{ max-width: 100%; height: 300px !important; }}
-        .footer {{ color: #777; font-size: .9em; margin-top: 30px; }}
-        .metrics {{ font-size: 1.1em; margin-bottom: 20px; }}
-        .metrics p {{ margin: 8px 0; }}
-        .metric-value {{ font-weight: bold; }}
-        .metric-good {{ color: #27ae60; }}
-        .metric-bad {{ color: #e74c3c; }}
-        .summary-box {{ display: inline-block; padding: 15px 25px; margin: 10px; background: #ecf0f1; border-radius: 8px; text-align: center; }}
-        .summary-box .value {{ font-size: 2em; font-weight: bold; color: #2c3e50; }}
-        .summary-box .label {{ font-size: 0.9em; color: #7f8c8d; }}
-        .feature-list {{ columns: 2; column-gap: 40px; }}
-        .feature-list li {{ margin-bottom: 8px; }}
-        .tech-badge {{ display: inline-block; padding: 5px 12px; margin: 4px; background: #3498db; color: white; border-radius: 15px; font-size: 0.9em; }}
-        .architecture-diagram {{ background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0; }}
-        .arch-box {{ display: inline-block; padding: 15px 25px; margin: 10px; background: #3498db; color: white; border-radius: 8px; min-width: 120px; }}
-        .arch-box.client {{ background: #9b59b6; }}
-        .arch-box.server {{ background: #27ae60; }}
-        .arch-box.common {{ background: #e67e22; }}
-        .arch-arrow {{ font-size: 2em; color: #7f8c8d; margin: 0 10px; }}
-        pre {{ background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 6px; overflow-x: auto; }}
-        table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}
-        th {{ background: #3498db; color: white; padding: 12px; text-align: left; }}
-        td {{ padding: 10px; border-bottom: 1px solid #ddd; }}
-        tr:nth-child(even):not(.test-details) {{ background: #f9f9f9; }}
-        .status-passed {{ color: #27ae60; font-weight: bold; }}
-        .status-failed {{ color: #e74c3c; font-weight: bold; }}
-        .test-case-list {{ margin: 5px 0; padding-left: 20px; font-size: 0.9em; color: #666; }}
-        .expandable {{ cursor: pointer; }}
-        .expandable:hover {{ background: #e8f4f8; }}
-        .test-details {{ display: none; background: #f8f9fa; }}
-        .test-details.show {{ display: table-row; }}
-        .toggle-icon {{ margin-right: 8px; }}
+        body { font-family: Arial, sans-serif; background: #f9f9f9; margin: 40px; }
+        h1, h2, h3, h4 { color: #2c3e50; }
+        .section { background: #fff; padding: 20px; margin-bottom: 25px; border-radius: 6px; box-shadow: 0 0 6px rgba(0,0,0,.1); }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+        canvas { max-width: 100%; height: 300px !important; }
+        .footer { color: #777; font-size: .9em; margin-top: 30px; }
+        .metrics { font-size: 1.1em; margin-bottom: 20px; }
+        .metrics p { margin: 8px 0; }
+        .metric-value { font-weight: bold; }
+        .metric-good { color: #27ae60; }
+        .metric-bad { color: #e74c3c; }
+        .summary-box { display: inline-block; padding: 15px 25px; margin: 10px; background: #ecf0f1; border-radius: 8px; text-align: center; }
+        .summary-box .value { font-size: 2em; font-weight: bold; color: #2c3e50; }
+        .summary-box .label { font-size: 0.9em; color: #7f8c8d; }
+        .feature-list { columns: 2; column-gap: 40px; }
+        .feature-list li { margin-bottom: 8px; }
+        .tech-badge { display: inline-block; padding: 5px 12px; margin: 4px; background: #3498db; color: white; border-radius: 15px; font-size: 0.9em; }
+        .architecture-diagram { background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0; }
+        .arch-box { display: inline-block; padding: 15px 25px; margin: 10px; background: #3498db; color: white; border-radius: 8px; min-width: 120px; }
+        .arch-box.client { background: #9b59b6; }
+        .arch-box.server { background: #27ae60; }
+        .arch-box.common { background: #e67e22; }
+        .arch-arrow { font-size: 2em; color: #7f8c8d; margin: 0 10px; }
+        pre { background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 6px; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th { background: #3498db; color: white; padding: 12px; text-align: left; }
+        td { padding: 10px; border-bottom: 1px solid #ddd; }
+        tr:nth-child(even):not(.test-details) { background: #f9f9f9; }
+        .status-passed { color: #27ae60; font-weight: bold; }
+        .status-failed { color: #e74c3c; font-weight: bold; }
+        .test-case-list { margin: 5px 0; padding-left: 20px; font-size: 0.9em; color: #666; }
+        .expandable { cursor: pointer; }
+        .expandable:hover { background: #e8f4f8; }
+        .test-details { display: none; background: #f8f9fa; }
+        .test-details.show { display: table-row; }
+        .toggle-icon { margin-right: 8px; }
     </style>
 </head>
 <body>
@@ -269,19 +269,19 @@ def generate_html(test_data, line_percent, func_percent, lines_covered, lines_to
     <h3>Summary</h3>
     <div style="text-align: center;">
         <div class="summary-box">
-            <div class="value">{line_percent:.1f}%</div>
+            <div class="value">LINE_PERCENT_PLACEHOLDER%</div>
             <div class="label">Line Coverage</div>
         </div>
         <div class="summary-box">
-            <div class="value">{func_percent:.1f}%</div>
+            <div class="value">FUNC_PERCENT_PLACEHOLDER%</div>
             <div class="label">Function Coverage</div>
         </div>
         <div class="summary-box">
-            <div class="value">{gtest_passed}/{gtest_total}</div>
+            <div class="value">GTEST_PASSED_PLACEHOLDER/GTEST_TOTAL_PLACEHOLDER</div>
             <div class="label">Tests Passed</div>
         </div>
         <div class="summary-box">
-            <div class="value">{test_data['total_suites']}</div>
+            <div class="value">TOTAL_SUITES_PLACEHOLDER</div>
             <div class="label">Test Suites</div>
         </div>
     </div>
@@ -290,8 +290,8 @@ def generate_html(test_data, line_percent, func_percent, lines_covered, lines_to
 <div class="section">
     <h3>Test Coverage Metrics</h3>
     <div class="metrics">
-        <p>Line Coverage: <span class="metric-value">{line_percent:.1f}% ({lines_covered} of {lines_total} lines)</span></p>
-        <p>Function Coverage: <span class="metric-value">{func_percent:.1f}% ({funcs_covered} of {funcs_total} functions)</span></p>
+        <p>Line Coverage: <span class="metric-value">LINE_PERCENT_PLACEHOLDER% (LINES_COVERED_PLACEHOLDER of LINES_TOTAL_PLACEHOLDER lines)</span></p>
+        <p>Function Coverage: <span class="metric-value">FUNC_PERCENT_PLACEHOLDER% (FUNCS_COVERED_PLACEHOLDER of FUNCS_TOTAL_PLACEHOLDER functions)</span></p>
     </div>
     <div class="grid">
         <div><canvas id="coveragePie"></canvas></div>
@@ -302,9 +302,9 @@ def generate_html(test_data, line_percent, func_percent, lines_covered, lines_to
 <div class="section">
     <h3>Test Results</h3>
     <div class="metrics">
-        <p>Total Tests: <span class="metric-value">{gtest_total}</span></p>
-        <p>Passed: <span class="metric-value metric-good">{gtest_passed}</span></p>
-        <p>Failed: <span class="metric-value {failed_class}">{gtest_failed}</span></p>
+        <p>Total Tests: <span class="metric-value">GTEST_TOTAL_PLACEHOLDER</span></p>
+        <p>Passed: <span class="metric-value metric-good">GTEST_PASSED_PLACEHOLDER</span></p>
+        <p>Failed: <span class="metric-value FAILED_CLASS_PLACEHOLDER">GTEST_FAILED_PLACEHOLDER</span></p>
     </div>
     
     <h4>Test Suites (Click to expand)</h4>
@@ -318,7 +318,7 @@ def generate_html(test_data, line_percent, func_percent, lines_covered, lines_to
             </tr>
         </thead>
         <tbody>
-            {suites_html}
+            SUITES_HTML_PLACEHOLDER
         </tbody>
     </table>
 
@@ -338,63 +338,63 @@ def generate_html(test_data, line_percent, func_percent, lines_covered, lines_to
         <tr><td><strong>Coverage Tool</strong></td><td>lcov / gcov</td></tr>
         <tr><td><strong>CI Platform</strong></td><td>GitHub Actions</td></tr>
         <tr><td><strong>Platform</strong></td><td>Ubuntu 24.04 (x86_64)</td></tr>
-        <tr><td><strong>Report Generated</strong></td><td>{current_date}</td></tr>
+        <tr><td><strong>Report Generated</strong></td><td>CURRENT_DATE_PLACEHOLDER</td></tr>
     </table>
 </div>
 
 <script>
-    var testData = {json.dumps(test_data)};
-    var linePercent = {line_percent};
-    var funcPercent = {func_percent};
-    var notCovered = {not_covered};
-    var gtestPassed = {gtest_passed};
-    var gtestFailed = {gtest_failed};
+    var testData = TEST_DATA_PLACEHOLDER;
+    var linePercent = LINE_PERCENT_JS_PLACEHOLDER;
+    var funcPercent = FUNC_PERCENT_JS_PLACEHOLDER;
+    var notCovered = NOT_COVERED_PLACEHOLDER;
+    var gtestPassed = GTEST_PASSED_JS_PLACEHOLDER;
+    var gtestFailed = GTEST_FAILED_JS_PLACEHOLDER;
 
-    function toggleDetails(index) {{
+    function toggleDetails(index) {
         var details = document.getElementById('details-' + index);
         details.classList.toggle('show');
         var icon = document.getElementById('icon-' + index);
         icon.textContent = details.classList.contains('show') ? '[-]' : '[+]';
-    }}
+    }
 
-    new Chart(document.getElementById('coveragePie'), {{
+    new Chart(document.getElementById('coveragePie'), {
         type: 'pie',
-        data: {{
+        data: {
             labels: ['Covered (' + linePercent.toFixed(1) + '%)', 'Not Covered (' + notCovered.toFixed(1) + '%)'],
-            datasets: [{{ data: [linePercent, notCovered], backgroundColor: ['#4DD0E1', '#FF9F40'] }}]
-        }},
-        options: {{ responsive: true, plugins: {{ title: {{ display: true, text: 'Line Coverage' }}, legend: {{ position: 'bottom' }} }} }}
-    }});
+            datasets: [{ data: [linePercent, notCovered], backgroundColor: ['#4DD0E1', '#FF9F40'] }]
+        },
+        options: { responsive: true, plugins: { title: { display: true, text: 'Line Coverage' }, legend: { position: 'bottom' } } }
+    });
 
-    new Chart(document.getElementById('coverageBar'), {{
+    new Chart(document.getElementById('coverageBar'), {
         type: 'bar',
-        data: {{
+        data: {
             labels: ['Line Coverage', 'Function Coverage'],
-            datasets: [{{ label: 'Coverage', data: [linePercent, funcPercent], backgroundColor: ['#4DD0E1', '#36A2EB'] }}]
-        }},
-        options: {{ responsive: true, plugins: {{ title: {{ display: true, text: 'Coverage by Type' }} }}, scales: {{ y: {{ beginAtZero: true, max: 100 }} }} }}
-    }});
+            datasets: [{ label: 'Coverage', data: [linePercent, funcPercent], backgroundColor: ['#4DD0E1', '#36A2EB'] }]
+        },
+        options: { responsive: true, plugins: { title: { display: true, text: 'Coverage by Type' } }, scales: { y: { beginAtZero: true, max: 100 } } }
+    });
 
-    new Chart(document.getElementById('testsPie'), {{
+    new Chart(document.getElementById('testsPie'), {
         type: 'doughnut',
-        data: {{
+        data: {
             labels: ['Passed (' + gtestPassed + ')', 'Failed (' + gtestFailed + ')'],
-            datasets: [{{ data: [gtestPassed, Math.max(gtestFailed, 0.1)], backgroundColor: ['#4BC0C0', '#FF6384'] }}]
-        }},
-        options: {{ responsive: true, plugins: {{ title: {{ display: true, text: 'Test Results' }}, legend: {{ position: 'bottom' }} }} }}
-    }});
+            datasets: [{ data: [gtestPassed, Math.max(gtestFailed, 0.1)], backgroundColor: ['#4BC0C0', '#FF6384'] }]
+        },
+        options: { responsive: true, plugins: { title: { display: true, text: 'Test Results' }, legend: { position: 'bottom' } } }
+    });
 
-    new Chart(document.getElementById('testsBar'), {{
+    new Chart(document.getElementById('testsBar'), {
         type: 'bar',
-        data: {{
+        data: {
             labels: testData.chart_labels,
             datasets: [
-                {{ label: 'Passed', data: testData.chart_passed, backgroundColor: '#4BC0C0' }},
-                {{ label: 'Failed', data: testData.chart_failed, backgroundColor: '#FF6384' }}
+                { label: 'Passed', data: testData.chart_passed, backgroundColor: '#4BC0C0' },
+                { label: 'Failed', data: testData.chart_failed, backgroundColor: '#FF6384' }
             ]
-        }},
-        options: {{ responsive: true, plugins: {{ title: {{ display: true, text: 'Tests by Suite' }} }}, scales: {{ x: {{ stacked: true }}, y: {{ stacked: true, beginAtZero: true }} }} }}
-    }});
+        },
+        options: { responsive: true, plugins: { title: { display: true, text: 'Tests by Suite' } }, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+    });
 </script>
 
 <div class="footer">
@@ -404,14 +404,37 @@ def generate_html(test_data, line_percent, func_percent, lines_covered, lines_to
 
 </body>
 </html>'''
+
+    # Replace placeholders
+    html = html.replace('LINE_PERCENT_PLACEHOLDER', '{:.1f}'.format(line_percent))
+    html = html.replace('FUNC_PERCENT_PLACEHOLDER', '{:.1f}'.format(func_percent))
+    html = html.replace('LINES_COVERED_PLACEHOLDER', str(lines_covered))
+    html = html.replace('LINES_TOTAL_PLACEHOLDER', str(lines_total))
+    html = html.replace('FUNCS_COVERED_PLACEHOLDER', str(funcs_covered))
+    html = html.replace('FUNCS_TOTAL_PLACEHOLDER', str(funcs_total))
+    html = html.replace('GTEST_PASSED_PLACEHOLDER', str(gtest_passed))
+    html = html.replace('GTEST_FAILED_PLACEHOLDER', str(gtest_failed))
+    html = html.replace('GTEST_TOTAL_PLACEHOLDER', str(gtest_total))
+    html = html.replace('TOTAL_SUITES_PLACEHOLDER', str(test_data['total_suites']))
+    html = html.replace('FAILED_CLASS_PLACEHOLDER', failed_class)
+    html = html.replace('CURRENT_DATE_PLACEHOLDER', current_date)
+    html = html.replace('SUITES_HTML_PLACEHOLDER', suites_html)
+    html = html.replace('TEST_DATA_PLACEHOLDER', json.dumps(test_data))
+    html = html.replace('LINE_PERCENT_JS_PLACEHOLDER', str(line_percent))
+    html = html.replace('FUNC_PERCENT_JS_PLACEHOLDER', str(func_percent))
+    html = html.replace('NOT_COVERED_PLACEHOLDER', str(not_covered))
+    html = html.replace('GTEST_PASSED_JS_PLACEHOLDER', str(gtest_passed))
+    html = html.replace('GTEST_FAILED_JS_PLACEHOLDER', str(gtest_failed))
     
     return html
 
 def main():
     # Parse test results
     if os.path.exists('test_results/results.xml'):
+        print('Parsing XML test results...')
         test_data = parse_xml()
     else:
+        print('Parsing text test output...')
         test_data = parse_text()
     
     # Get environment variables
@@ -435,11 +458,13 @@ def main():
     with open('REPORT.html', 'w') as f:
         f.write(html)
     
+    print('='*50)
     print('Report generated successfully!')
-    print(f'Line Coverage: {line_percent}%')
-    print(f'Function Coverage: {func_percent}%')
-    print(f'Tests: {gtest_passed}/{gtest_total} passed')
-    print(f'Test Suites: {test_data["total_suites"]}')
+    print('='*50)
+    print('Line Coverage: {:.1f}%'.format(line_percent))
+    print('Function Coverage: {:.1f}%'.format(func_percent))
+    print('Tests: {}/{} passed'.format(gtest_passed, gtest_total))
+    print('Test Suites: {}'.format(test_data['total_suites']))
 
 if __name__ == '__main__':
     main()
