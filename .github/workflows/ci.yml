@@ -1,0 +1,57 @@
+name: Qt6 CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1️⃣ Checkout repository
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # 2️⃣ Install dependencies
+    - name: Install Qt 6 and build tools
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          qt6-base-dev \
+          qt6-tools-dev \
+          qt6-tools-dev-tools \
+          build-essential \
+          cmake \
+          libgtest-dev
+
+    # 3️⃣ Build GoogleTest (Ubuntu installs sources only)
+    - name: Build GoogleTest
+      run: |
+        cd /usr/src/gtest
+        sudo cmake .
+        sudo make
+        sudo cp lib/*.a /usr/lib
+
+    # 4️⃣ Configure project with qmake6
+    - name: Configure project
+      run: |
+        qmake6 ClientServerSystem.pro
+
+    # 5️⃣ Build project
+    - name: Build project
+      run: |
+        make -j$(nproc)
+
+    # 6️⃣ Run QtTest tests
+    - name: Run QtTests
+      run: |
+        ./tests/qt/test_parser/test_parser
+        ./tests/qt/test_append/test_append
+        ./tests/qt/test_info/test_info
+        ./tests/qt/test_cpu/test_cpu
+
+    # 7️⃣ Run GoogleTests
+    - name: Run GoogleTests
+      run: |
+        ./tests/gtest/test_commands/test_commands

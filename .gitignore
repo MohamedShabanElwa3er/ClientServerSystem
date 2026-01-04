@@ -1,0 +1,20 @@
+# Build artifacts
+*.o
+*.a
+*.moc
+moc_*.cpp
+Makefile
+.qmake.stash
+
+# Executables
+server
+client
+tests
+test_*
+
+# Qt Creator
+*.pro.user
+
+# OS files
+.DS_Store
+Thumbs.db
