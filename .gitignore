@@ -9,7 +9,7 @@ Makefile
 # Executables
 server/server
 client/client
-tests/**/test_*
+tests/**/test_*/test_*
 
 # Qt Creator
 *.pro.user
