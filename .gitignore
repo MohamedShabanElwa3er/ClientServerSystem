@@ -7,10 +7,9 @@ Makefile
 .qmake.stash
 
 # Executables
-server
-client
-tests
-test_*
+server/server
+client/client
+tests/**/test_*
 
 # Qt Creator
 *.pro.user
