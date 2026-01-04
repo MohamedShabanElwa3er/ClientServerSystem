@@ -37,7 +37,7 @@ jobs:
           gcovr
 
     # =========================
-    # 3️⃣ Build GoogleTest (Ubuntu ships sources only)
+    # 3️⃣ Build GoogleTest
     # =========================
     - name: Build GoogleTest
       run: |
@@ -57,7 +57,7 @@ jobs:
         rm -f .qmake.stash
 
     # =========================
-    # 5️⃣ Preflight checks (FAIL FAST)
+    # 5️⃣ Preflight checks
     # =========================
     - name: Verify test sources exist
       run: |
@@ -92,7 +92,7 @@ jobs:
         make -j$(nproc)
 
     # =========================
-    # 8️⃣ Run QtTests (generate .gcda)
+    # 8️⃣ Run QtTests
     # =========================
     - name: Run QtTests
       run: |
@@ -118,26 +118,87 @@ jobs:
              --ignore-errors mismatch,empty \
              --rc geninfo_unexecuted_blocks=1 \
              --output-file coverage.info
-    
+
         lcov --remove coverage.info \
              '/usr/*' \
              '*/tests/*' \
              --output-file coverage.info
-    
+
         genhtml coverage.info --output-directory coverage-report
 
     # =========================
-    # 1️⃣1️⃣ Generate CI report
+    # 1️⃣1️⃣ Generate HTML project report
     # =========================
-    - name: Generate CI report
+    - name: Generate HTML project report
       run: |
-        cat << EOF > CI_REPORT.md
-        ✅ CI SUCCESS
-        Project: ClientServerSystem
-        Author: Mohamed Waaer
-        Email: mohamed.waer@coretech-innovations.com
-        Commit: $GITHUB_SHA
-        Date: $(date)
+        cat << 'EOF' > PROJECT_REPORT.html
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <title>ClientServerSystem – CI & Coverage Report</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 40px; background:#f9f9f9; }
+            h1, h2 { color:#2c3e50; }
+            .section { background:#fff; padding:20px; margin-bottom:20px; border-radius:6px; box-shadow:0 0 5px rgba(0,0,0,.1); }
+            table { width:100%; border-collapse:collapse; }
+            th, td { border:1px solid #ccc; padding:10px; }
+            .success { color:green; font-weight:bold; }
+            iframe { width:100%; height:800px; border:1px solid #ccc; }
+            .footer { font-size:.9em; color:#777; }
+          </style>
+        </head>
+        <body>
+
+        <h1>✅ ClientServerSystem</h1>
+        <h2>CI, Testing & Coverage Report</h2>
+
+        <div class="section">
+          <h3>👤 Author</h3>
+          <p><strong>Name:</strong> Mohamed Waaer</p>
+          <p><strong>Email:</strong> mohamed.waer@coretech-innovations.com</p>
+        </div>
+
+        <div class="section">
+          <h3>📌 Project Overview</h3>
+          <p>Qt 6 based C++ client–server system with automated CI, testing, and coverage.</p>
+          <ul>
+            <li>C++17</li>
+            <li>Qt 6</li>
+            <li>qmake</li>
+            <li>QtTest & GoogleTest</li>
+          </ul>
+        </div>
+
+        <div class="section">
+          <h3>🔁 CI Summary</h3>
+          <table>
+            <tr><th>Platform</th><td>GitHub Actions</td></tr>
+            <tr><th>OS</th><td>Ubuntu</td></tr>
+            <tr><th>Commit</th><td>$GITHUB_SHA</td></tr>
+            <tr><th>Date</th><td>$(date)</td></tr>
+          </table>
+        </div>
+
+        <div class="section">
+          <h3>🧪 Test Results</h3>
+          <ul>
+            <li class="success">Qt Tests – PASSED</li>
+            <li class="success">GoogleTests – PASSED</li>
+          </ul>
+        </div>
+
+        <div class="section">
+          <h3>📊 Test Coverage</h3>
+          <iframe src="coverage-report/index.html"></iframe>
+        </div>
+
+        <div class="footer">
+          Generated automatically by GitHub Actions CI
+        </div>
+
+        </body>
+        </html>
         EOF
 
     # =========================
@@ -146,7 +207,7 @@ jobs:
     - name: Create deliverable ZIP
       run: |
         zip -r ClientServerSystem_Deliverable.zip \
-          PROJECT_REPORT.md \
+          PROJECT_REPORT.html \
           CI_REPORT.md \
           coverage-report
 
