@@ -41,7 +41,7 @@ jobs:
     # 5️⃣ Build project
     - name: Build project
       run: |
-        make -j$(nproc)
+        make -V
 
     # 6️⃣ Run QtTest tests
     - name: Run QtTests
