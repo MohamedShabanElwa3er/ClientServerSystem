@@ -8,10 +8,12 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
-    # ✅ Global environment for headless Qt
+    # ✅ Global environment
     env:
       QT_QPA_PLATFORM: offscreen
       QT_LOGGING_RULES: "qt.qpa.*=false"
+      CXXFLAGS: "--coverage -O0"
+      LDFLAGS: "--coverage"
 
     steps:
     # =========================
@@ -23,7 +25,7 @@ jobs:
     # =========================
     # 2️⃣ Install dependencies
     # =========================
-    - name: Install Qt 6 and build tools
+    - name: Install Qt, build tools, and coverage tools
       run: |
         sudo apt update
         sudo apt install -y \
@@ -32,10 +34,12 @@ jobs:
           qt6-tools-dev-tools \
           build-essential \
           cmake \
-          libgtest-dev
+          libgtest-dev \
+          lcov \
+          gcovr
 
     # =========================
-    # 3️⃣ Build GoogleTest (Ubuntu ships sources only)
+    # 3️⃣ Build GoogleTest
     # =========================
     - name: Build GoogleTest
       run: |
@@ -45,7 +49,7 @@ jobs:
         sudo cp lib/*.a /usr/lib
 
     # =========================
-    # 4️⃣ Clean build artifacts (reproducible builds)
+    # 4️⃣ Clean build artifacts
     # =========================
     - name: Clean build artifacts
       run: |
@@ -55,32 +59,26 @@ jobs:
         rm -f .qmake.stash
 
     # =========================
-    # 5️⃣ Preflight check (FAIL FAST)
+    # 5️⃣ Preflight checks
     # =========================
     - name: Verify test sources exist
       run: |
         echo "🔍 Checking Qt tests..."
         for d in tests/qt/test_*; do
           name=$(basename "$d")
-          if [ ! -f "$d/$name.cpp" ]; then
-            echo "❌ Missing $d/$name.cpp"
-            exit 1
-          fi
+          test -f "$d/$name.cpp" || { echo "❌ Missing $d/$name.cpp"; exit 1; }
         done
 
         echo "🔍 Checking GoogleTest sources..."
         for pro in tests/gtest/*/*.pro; do
           dir=$(dirname "$pro")
           grep -o '[^ ]*\.cpp' "$pro" | while read src; do
-            if [ ! -f "$dir/$src" ]; then
-              echo "❌ Missing $dir/$src"
-              exit 1
-            fi
+            test -f "$dir/$src" || { echo "❌ Missing $dir/$src"; exit 1; }
           done
         done
 
     # =========================
-    # 6️⃣ Configure project (recursive qmake)
+    # 6️⃣ Configure project
     # =========================
     - name: Configure project
       run: |
@@ -94,21 +92,7 @@ jobs:
         make -j$(nproc)
 
     # =========================
-    # 8️⃣ Verify build outputs
-    # =========================
-    - name: Verify build outputs
-      run: |
-        echo "📦 Server:"
-        ls -l server || true
-        echo "📦 Client:"
-        ls -l client || true
-        echo "📦 Qt tests:"
-        find tests/qt -type f -executable
-        echo "📦 GTest binaries:"
-        find tests/gtest -type f -executable
-
-    # =========================
-    # 9️⃣ Run QtTests (headless)
+    # 8️⃣ Run QtTests
     # =========================
     - name: Run QtTests
       run: |
@@ -118,8 +102,50 @@ jobs:
         ./tests/qt/test_cpu/test_cpu
 
     # =========================
-    # 🔟 Run GoogleTests
+    # 9️⃣ Run GoogleTests
     # =========================
     - name: Run GoogleTests
       run: |
         ./tests/gtest/test_commands/test_commands
+
+    # =========================
+    # 🔟 Generate coverage report
+    # =========================
+    - name: Generate coverage report
+      run: |
+        lcov --capture --directory . --output-file coverage.info
+        lcov --remove coverage.info '/usr/*' --output-file coverage.info
+        genhtml coverage.info --output-directory coverage-report
+
+    # =========================
+    # 1️⃣1️⃣ Generate CI report
+    # =========================
+    - name: Generate CI report
+      run: |
+        cat << EOF > CI_REPORT.md
+        ✅ CI SUCCESS
+        Project: ClientServerSystem
+        Author: Mohamed Waaer
+        Email: mohamed.waer@coretech-innovations.com
+        Commit: $GITHUB_SHA
+        Date: $(date)
+        EOF
+
+    # =========================
+    # 1️⃣2️⃣ Create deliverable ZIP
+    # =========================
+    - name: Create deliverable ZIP
+      run: |
+        zip -r ClientServerSystem_Deliverable.zip \
+          PROJECT_REPORT.md \
+          CI_REPORT.md \
+          coverage-report
+
+    # =========================
+    # 1️⃣3️⃣ Upload artifacts
+    # =========================
+    - name: Upload deliverable
+      uses: actions/upload-artifact@v4
+      with:
+        name: ClientServerSystem_Deliverable
+        path: ClientServerSystem_Deliverable.zip
