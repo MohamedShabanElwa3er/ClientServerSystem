@@ -115,14 +115,15 @@ jobs:
       run: |
         lcov --capture \
              --directory . \
-             --ignore-errors empty \
+             --ignore-errors mismatch,empty \
+             --rc geninfo_unexecuted_blocks=1 \
              --output-file coverage.info
-
+    
         lcov --remove coverage.info \
              '/usr/*' \
              '*/tests/*' \
              --output-file coverage.info
-
+    
         genhtml coverage.info --output-directory coverage-report
 
     # =========================
