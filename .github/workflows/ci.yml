@@ -36,7 +36,7 @@ jobs:
     # 4️⃣ Configure project with qmake6
     - name: Configure project
       run: |
-        qmake6 ClientServerSystem.pro
+        qmake6 -r ClientServerSystem.pro
 
     # 5️⃣ Build project
     - name: Build project
