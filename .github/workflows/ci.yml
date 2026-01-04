@@ -8,7 +8,6 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
-    # ✅ Global environment (headless Qt)
     env:
       QT_QPA_PLATFORM: offscreen
       QT_LOGGING_RULES: "qt.qpa.*=false"
@@ -58,26 +57,7 @@ jobs:
         rm -f .qmake.stash
 
     # =========================
-    # 5️⃣ Preflight checks
-    # =========================
-    - name: Verify test sources exist
-      run: |
-        echo "🔍 Checking Qt tests..."
-        for d in tests/qt/test_*; do
-          name=$(basename "$d")
-          test -f "$d/$name.cpp" || { echo "❌ Missing $d/$name.cpp"; exit 1; }
-        done
-
-        echo "🔍 Checking GoogleTest sources..."
-        for pro in tests/gtest/*/*.pro; do
-          dir=$(dirname "$pro")
-          grep -o '[^ ]*\.cpp' "$pro" | while read src; do
-            test -f "$dir/$src" || { echo "❌ Missing $dir/$src"; exit 1; }
-          done
-        done
-
-    # =========================
-    # 6️⃣ Configure project (qmake + coverage)
+    # 5️⃣ Configure project (qmake + coverage)
     # =========================
     - name: Configure project (with coverage)
       run: |
@@ -86,14 +66,14 @@ jobs:
           "QMAKE_LFLAGS+=--coverage"
 
     # =========================
-    # 7️⃣ Build project
+    # 6️⃣ Build project
     # =========================
     - name: Build project
       run: |
         make -j$(nproc)
 
     # =========================
-    # 8️⃣ Run QtTests
+    # 7️⃣ Run tests
     # =========================
     - name: Run QtTests
       run: |
@@ -102,17 +82,14 @@ jobs:
         ./tests/qt/test_info/test_info
         ./tests/qt/test_cpu/test_cpu
 
-    # =========================
-    # 9️⃣ Run GoogleTests
-    # =========================
     - name: Run GoogleTests
       run: |
         ./tests/gtest/test_commands/test_commands
 
     # =========================
-    # 🔟 Capture coverage data (lcov)
+    # 8️⃣ Capture coverage
     # =========================
-    - name: Capture coverage data
+    - name: Capture coverage
       run: |
         lcov --capture \
              --directory . \
@@ -126,23 +103,21 @@ jobs:
              --output-file coverage.info
 
     # =========================
-    # 1️⃣1️⃣ Generate coverage JSON (gcovr)
+    # 9️⃣ Generate coverage JSON
     # =========================
     - name: Generate coverage JSON
       run: |
-        gcovr \
-          --root . \
-          --filter common \
-          --filter server \
-          --exclude tests \
-          --json coverage.json
+        gcovr --root . --exclude tests --json coverage.json
 
     # =========================
-    # 1️⃣2️⃣ Generate unified HTML report with plots
+    # 🔟 Generate FINAL HTML report with NUMBERS
     # =========================
-    - name: Generate unified HTML report
+    - name: Generate REPORT.html
       run: |
-        LINE_PERCENT=$(jq '.line_coverage.percent' coverage.json)
+        COVERED=$(jq '.line_coverage.covered' coverage.json)
+        TOTAL=$(jq '.line_coverage.total' coverage.json)
+        MISSED=$(jq '.line_coverage.missed' coverage.json)
+        PERCENT=$(jq '.line_coverage.percent // .line_coverage.percentage' coverage.json)
 
         cat << EOF > REPORT.html
         <!DOCTYPE html>
@@ -151,16 +126,16 @@ jobs:
           <meta charset="UTF-8">
           <title>ClientServerSystem – CI & Coverage Report</title>
 
-          <!-- Chart.js -->
           <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+          <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 
           <style>
             body { font-family: Arial, sans-serif; background:#f9f9f9; margin:40px; }
             h1, h2, h3 { color:#2c3e50; }
-            .section { background:#fff; padding:20px; margin-bottom:25px; border-radius:6px; box-shadow:0 0 6px rgba(0,0,0,.1); }
+            .section { background:#fff; padding:20px; margin-bottom:25px;
+                       border-radius:6px; box-shadow:0 0 6px rgba(0,0,0,.1); }
             .grid { display:grid; grid-template-columns:1fr 1fr; gap:30px; }
             canvas { max-width:100%; }
-            .footer { color:#777; font-size:.9em; }
           </style>
         </head>
 
@@ -170,52 +145,22 @@ jobs:
         <h2>CI, Testing & Coverage Report</h2>
 
         <div class="section">
-          <h3>👤 Author</h3>
-          <p><strong>Name:</strong> Mohamed Waaer</p>
-          <p><strong>Email:</strong> mohamed.waer@coretech-innovations.com</p>
-        </div>
-
-        <div class="section">
-          <h3>📌 Project Overview</h3>
-          <p>
-            ClientServerSystem is a modular client–server application developed in
-            C++ (C++17) using the Qt 6 framework. The project demonstrates clean
-            architectural separation, automated testing with QtTest and GoogleTest,
-            and professional CI-based coverage analysis.
-          </p>
-        </div>
-
-        <div class="section">
-          <h3>🔁 CI Summary</h3>
-          <ul>
-            <li><strong>Platform:</strong> GitHub Actions</li>
-            <li><strong>OS:</strong> Ubuntu</li>
-            <li><strong>Commit:</strong> $GITHUB_SHA</li>
-            <li><strong>Date:</strong> $(date)</li>
-          </ul>
-        </div>
-
-        <div class="section">
-          <h3>📊 Test Coverage Metrics</h3>
-
+          <h3>📊 Test Coverage Metric</h3>
           <div class="grid">
-            <div>
-              <canvas id="coveragePie"></canvas>
-            </div>
-            <div>
-              <canvas id="coverageBar"></canvas>
-            </div>
+            <canvas id="coveragePie"></canvas>
+            <canvas id="coverageBar"></canvas>
           </div>
         </div>
 
         <script>
-          // Pie chart (coverage overview)
+          Chart.register(ChartDataLabels);
+
           new Chart(document.getElementById('coveragePie'), {
             type: 'pie',
             data: {
-              labels: ['Covered Code', 'Not Covered'],
+              labels: ['Covered', 'Not Covered'],
               datasets: [{
-                data: [$LINE_PERCENT, 100 - $LINE_PERCENT],
+                data: [$COVERED, $MISSED],
                 backgroundColor: ['#4DD0E1', '#FF9F40']
               }]
             },
@@ -224,59 +169,53 @@ jobs:
                 title: {
                   display: true,
                   text: 'Test Coverage Metric'
+                },
+                datalabels: {
+                  color: '#fff',
+                  formatter: (value) => value
                 }
               }
             }
           });
 
-          // Bar chart (conceptual QtTest vs GoogleTest)
           new Chart(document.getElementById('coverageBar'), {
             type: 'bar',
             data: {
-              labels: ['QtTest', 'GoogleTest'],
+              labels: ['Total Lines', 'Covered Lines'],
               datasets: [{
-                label: 'Coverage (%)',
-                data: [$LINE_PERCENT, $LINE_PERCENT],
-                backgroundColor: ['#4DD0E1', '#3A4A62']
+                label: 'Lines',
+                data: [$TOTAL, $COVERED],
+                backgroundColor: ['#3A4A62', '#4DD0E1']
               }]
             },
             options: {
-              scales: {
-                y: {
-                  beginAtZero: true,
-                  max: 100
-                }
-              },
               plugins: {
                 title: {
                   display: true,
-                  text: 'Test Result Details'
+                  text: 'Coverage Details'
+                },
+                datalabels: {
+                  anchor: 'end',
+                  align: 'top',
+                  formatter: (value) => value
                 }
+              },
+              scales: {
+                y: { beginAtZero: true }
               }
             }
           });
         </script>
-
-        <div class="footer">
-          Generated automatically by GitHub Actions CI
-        </div>
 
         </body>
         </html>
         EOF
 
     # =========================
-    # 1️⃣3️⃣ Create deliverable ZIP
+    # 1️⃣1️⃣ Package artifact
     # =========================
-    - name: Create deliverable ZIP
-      run: |
-        zip -r ClientServerSystem_Deliverable.zip REPORT.html
-
-    # =========================
-    # 1️⃣4️⃣ Upload artifacts
-    # =========================
-    - name: Upload deliverable
+    - name: Upload report
       uses: actions/upload-artifact@v4
       with:
-        name: ClientServerSystem_Deliverable
-        path: ClientServerSystem_Deliverable.zip
+        name: ClientServerSystem_Report
+        path: REPORT.html
