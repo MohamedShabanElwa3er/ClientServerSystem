@@ -34,7 +34,8 @@ jobs:
           cmake \
           libgtest-dev \
           lcov \
-          gcovr
+          gcovr \
+          jq
 
     # =========================
     # 3️⃣ Build GoogleTest
@@ -109,7 +110,7 @@ jobs:
         ./tests/gtest/test_commands/test_commands
 
     # =========================
-    # 🔟 Collect coverage data (lcov)
+    # 🔟 Capture coverage data (lcov)
     # =========================
     - name: Capture coverage data
       run: |
@@ -125,38 +126,44 @@ jobs:
              --output-file coverage.info
 
     # =========================
-    # 1️⃣1️⃣ Generate professional coverage HTML (gcovr)
+    # 1️⃣1️⃣ Generate coverage JSON (gcovr)
     # =========================
-    - name: Generate coverage HTML report
+    - name: Generate coverage JSON
       run: |
         gcovr \
           --root . \
           --filter common \
           --filter server \
-          --html-details \
-          --html-title "ClientServerSystem Coverage Report" \
-          --output coverage.html
+          --exclude tests \
+          --json coverage.json
 
     # =========================
-    # 1️⃣2️⃣ Generate HTML project report
+    # 1️⃣2️⃣ Generate unified HTML report with plots
     # =========================
-    - name: Generate HTML project report
+    - name: Generate unified HTML report
       run: |
-        cat << EOF > PROJECT_REPORT.html
+        LINE_PERCENT=$(jq '.line_coverage.percent' coverage.json)
+
+        cat << EOF > REPORT.html
         <!DOCTYPE html>
         <html lang="en">
         <head>
           <meta charset="UTF-8">
-          <title>ClientServerSystem – CI, Testing & Coverage</title>
+          <title>ClientServerSystem – CI & Coverage Report</title>
+
+          <!-- Chart.js -->
+          <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
           <style>
-            body { font-family: Arial, sans-serif; margin: 40px; background:#f9f9f9; }
+            body { font-family: Arial, sans-serif; background:#f9f9f9; margin:40px; }
             h1, h2, h3 { color:#2c3e50; }
-            .section { background:#fff; padding:20px; margin-bottom:20px; border-radius:6px; box-shadow:0 0 6px rgba(0,0,0,.1); }
-            iframe { width:100%; height:900px; border:1px solid #ccc; }
-            table { width:100%; border-collapse:collapse; }
-            th, td { border:1px solid #ccc; padding:10px; }
+            .section { background:#fff; padding:20px; margin-bottom:25px; border-radius:6px; box-shadow:0 0 6px rgba(0,0,0,.1); }
+            .grid { display:grid; grid-template-columns:1fr 1fr; gap:30px; }
+            canvas { max-width:100%; }
+            .footer { color:#777; font-size:.9em; }
           </style>
         </head>
+
         <body>
 
         <h1>✅ ClientServerSystem</h1>
@@ -172,48 +179,87 @@ jobs:
           <h3>📌 Project Overview</h3>
           <p>
             ClientServerSystem is a modular client–server application developed in
-            C++ (C++17) using the Qt 6 framework. The project demonstrates a clean
-            separation between client, server, and shared logic, with a strong focus
-            on testability, automation, and software quality.
-          </p>
-          <p>
-            The system integrates automated unit testing using QtTest and GoogleTest,
-            combined with continuous integration and coverage analysis to ensure
-            correctness, maintainability, and long-term scalability.
+            C++ (C++17) using the Qt 6 framework. The project demonstrates clean
+            architectural separation, automated testing with QtTest and GoogleTest,
+            and professional CI-based coverage analysis.
           </p>
         </div>
 
         <div class="section">
           <h3>🔁 CI Summary</h3>
-          <table>
-            <tr><th>Platform</th><td>GitHub Actions</td></tr>
-            <tr><th>OS</th><td>Ubuntu</td></tr>
-            <tr><th>Commit</th><td>$GITHUB_SHA</td></tr>
-            <tr><th>Date</th><td>$(date)</td></tr>
-          </table>
-        </div>
-
-        <div class="section">
-          <h3>🧪 Testing</h3>
           <ul>
-            <li>QtTest – Core and Qt-dependent logic</li>
-            <li>GoogleTest – Server command validation</li>
+            <li><strong>Platform:</strong> GitHub Actions</li>
+            <li><strong>OS:</strong> Ubuntu</li>
+            <li><strong>Commit:</strong> $GITHUB_SHA</li>
+            <li><strong>Date:</strong> $(date)</li>
           </ul>
         </div>
 
         <div class="section">
-          <h3>📊 Test Coverage</h3>
-          <p>
-            The coverage report below is generated using <strong>gcov + gcovr</strong>,
-            providing a reliable, self-contained HTML report with execution statistics
-            and coverage charts for production code.
-          </p>
-          <iframe src="./coverage.html"></iframe>
+          <h3>📊 Test Coverage Metrics</h3>
+
+          <div class="grid">
+            <div>
+              <canvas id="coveragePie"></canvas>
+            </div>
+            <div>
+              <canvas id="coverageBar"></canvas>
+            </div>
+          </div>
         </div>
 
-        <p style="color:#777; font-size:.9em;">
+        <script>
+          // Pie chart (coverage overview)
+          new Chart(document.getElementById('coveragePie'), {
+            type: 'pie',
+            data: {
+              labels: ['Covered Code', 'Not Covered'],
+              datasets: [{
+                data: [$LINE_PERCENT, 100 - $LINE_PERCENT],
+                backgroundColor: ['#4DD0E1', '#FF9F40']
+              }]
+            },
+            options: {
+              plugins: {
+                title: {
+                  display: true,
+                  text: 'Test Coverage Metric'
+                }
+              }
+            }
+          });
+
+          // Bar chart (conceptual QtTest vs GoogleTest)
+          new Chart(document.getElementById('coverageBar'), {
+            type: 'bar',
+            data: {
+              labels: ['QtTest', 'GoogleTest'],
+              datasets: [{
+                label: 'Coverage (%)',
+                data: [$LINE_PERCENT, $LINE_PERCENT],
+                backgroundColor: ['#4DD0E1', '#3A4A62']
+              }]
+            },
+            options: {
+              scales: {
+                y: {
+                  beginAtZero: true,
+                  max: 100
+                }
+              },
+              plugins: {
+                title: {
+                  display: true,
+                  text: 'Test Result Details'
+                }
+              }
+            }
+          });
+        </script>
+
+        <div class="footer">
           Generated automatically by GitHub Actions CI
-        </p>
+        </div>
 
         </body>
         </html>
@@ -224,9 +270,7 @@ jobs:
     # =========================
     - name: Create deliverable ZIP
       run: |
-        zip -r ClientServerSystem_Deliverable.zip \
-          PROJECT_REPORT.html \
-          coverage.html
+        zip -r ClientServerSystem_Deliverable.zip REPORT.html
 
     # =========================
     # 1️⃣4️⃣ Upload artifacts
