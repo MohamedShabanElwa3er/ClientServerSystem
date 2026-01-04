@@ -36,12 +36,12 @@ jobs:
     # 4️⃣ Configure project with qmake6
     - name: Configure project
       run: |
-        qmake6 -r ClientServerSystem.pro
+        qmake6 ClientServerSystem.pro
 
     # 5️⃣ Build project
     - name: Build project
       run: |
-        make -j$(nproc)
+        make 
 
     # 6️⃣ Run QtTest tests
     - name: Run QtTests
