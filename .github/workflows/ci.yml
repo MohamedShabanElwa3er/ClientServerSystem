@@ -8,12 +8,21 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
+    # ✅ Global environment for headless Qt
+    env:
+      QT_QPA_PLATFORM: offscreen
+      QT_LOGGING_RULES: "qt.qpa.*=false"
+
     steps:
+    # =========================
     # 1️⃣ Checkout repository
+    # =========================
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # =========================
     # 2️⃣ Install dependencies
+    # =========================
     - name: Install Qt 6 and build tools
       run: |
         sudo apt update
@@ -25,39 +34,82 @@ jobs:
           cmake \
           libgtest-dev
 
-    # 3️⃣ Build GoogleTest (Ubuntu installs sources only)
+    # =========================
+    # 3️⃣ Build GoogleTest (Ubuntu ships sources only)
+    # =========================
     - name: Build GoogleTest
       run: |
         cd /usr/src/gtest
         sudo cmake .
-        sudo make
+        sudo make -j$(nproc)
         sudo cp lib/*.a /usr/lib
 
-    # 4️⃣ Clean previous build artifacts (VERY IMPORTANT)
+    # =========================
+    # 4️⃣ Clean build artifacts (reproducible builds)
+    # =========================
     - name: Clean build artifacts
       run: |
         find . -name Makefile -delete
+        find . -name "*.o" -delete
+        find . -name "moc_*.cpp" -delete
         rm -f .qmake.stash
 
-    # 5️⃣ Configure project (recursive)
+    # =========================
+    # 5️⃣ Preflight check (FAIL FAST)
+    # =========================
+    - name: Verify test sources exist
+      run: |
+        echo "🔍 Checking Qt tests..."
+        for d in tests/qt/test_*; do
+          name=$(basename "$d")
+          if [ ! -f "$d/$name.cpp" ]; then
+            echo "❌ Missing $d/$name.cpp"
+            exit 1
+          fi
+        done
+
+        echo "🔍 Checking GoogleTest sources..."
+        for pro in tests/gtest/*/*.pro; do
+          dir=$(dirname "$pro")
+          grep -o '[^ ]*\.cpp' "$pro" | while read src; do
+            if [ ! -f "$dir/$src" ]; then
+              echo "❌ Missing $dir/$src"
+              exit 1
+            fi
+          done
+        done
+
+    # =========================
+    # 6️⃣ Configure project (recursive qmake)
+    # =========================
     - name: Configure project
       run: |
         qmake6 -r ClientServerSystem.pro
 
-    # 6️⃣ Build project (SEQUENTIAL to avoid race)
+    # =========================
+    # 7️⃣ Build project
+    # =========================
     - name: Build project
       run: |
-        make -j1
+        make -j$(nproc)
 
-    # 7️⃣ Verify build outputs (sanity check)
+    # =========================
+    # 8️⃣ Verify build outputs
+    # =========================
     - name: Verify build outputs
       run: |
-        ls -R server
-        ls -R client
-        ls -R tests/qt
-        ls -R tests/gtest
+        echo "📦 Server:"
+        ls -l server || true
+        echo "📦 Client:"
+        ls -l client || true
+        echo "📦 Qt tests:"
+        find tests/qt -type f -executable
+        echo "📦 GTest binaries:"
+        find tests/gtest -type f -executable
 
-    # 8️⃣ Run QtTest tests
+    # =========================
+    # 9️⃣ Run QtTests (headless)
+    # =========================
     - name: Run QtTests
       run: |
         ./tests/qt/test_parser/test_parser
@@ -65,7 +117,9 @@ jobs:
         ./tests/qt/test_info/test_info
         ./tests/qt/test_cpu/test_cpu
 
-    # 9️⃣ Run GoogleTests
+    # =========================
+    # 🔟 Run GoogleTests
+    # =========================
     - name: Run GoogleTests
       run: |
         ./tests/gtest/test_commands/test_commands
