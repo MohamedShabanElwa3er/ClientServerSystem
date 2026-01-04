@@ -109,9 +109,9 @@ jobs:
         ./tests/gtest/test_commands/test_commands
 
     # =========================
-    # 🔟 Generate coverage report
+    # 🔟 Collect coverage data (lcov)
     # =========================
-    - name: Generate coverage report
+    - name: Capture coverage data
       run: |
         lcov --capture \
              --directory . \
@@ -124,12 +124,22 @@ jobs:
              '*/tests/*' \
              --output-file coverage.info
 
-        genhtml coverage.info --output-directory coverage-report
+    # =========================
+    # 1️⃣1️⃣ Generate professional coverage HTML (gcovr)
+    # =========================
+    - name: Generate coverage HTML report
+      run: |
+        gcovr \
+          --root . \
+          --filter common \
+          --filter server \
+          --html-details \
+          --html-title "ClientServerSystem Coverage Report" \
+          --output coverage.html
 
     # =========================
-    # 1️⃣1️⃣ Generate HTML project report
+    # 1️⃣2️⃣ Generate HTML project report
     # =========================
-
     - name: Generate HTML project report
       run: |
         cat << EOF > PROJECT_REPORT.html
@@ -137,34 +147,42 @@ jobs:
         <html lang="en">
         <head>
           <meta charset="UTF-8">
-          <title>ClientServerSystem – CI & Coverage Report</title>
+          <title>ClientServerSystem – CI, Testing & Coverage</title>
           <style>
             body { font-family: Arial, sans-serif; margin: 40px; background:#f9f9f9; }
-            h1, h2 { color:#2c3e50; }
-            .section { background:#fff; padding:20px; margin-bottom:20px; border-radius:6px; box-shadow:0 0 5px rgba(0,0,0,.1); }
+            h1, h2, h3 { color:#2c3e50; }
+            .section { background:#fff; padding:20px; margin-bottom:20px; border-radius:6px; box-shadow:0 0 6px rgba(0,0,0,.1); }
+            iframe { width:100%; height:900px; border:1px solid #ccc; }
             table { width:100%; border-collapse:collapse; }
             th, td { border:1px solid #ccc; padding:10px; }
-            .success { color:green; font-weight:bold; }
-            iframe { width:100%; height:900px; border:1px solid #ccc; }
-            .footer { font-size:.9em; color:#777; }
           </style>
         </head>
         <body>
-    
+
         <h1>✅ ClientServerSystem</h1>
         <h2>CI, Testing & Coverage Report</h2>
-    
+
         <div class="section">
           <h3>👤 Author</h3>
           <p><strong>Name:</strong> Mohamed Waaer</p>
           <p><strong>Email:</strong> mohamed.waer@coretech-innovations.com</p>
         </div>
-    
+
         <div class="section">
           <h3>📌 Project Overview</h3>
-          <p>Qt 6–based C++ client–server system with automated CI, testing, and coverage.</p>
+          <p>
+            ClientServerSystem is a modular client–server application developed in
+            C++ (C++17) using the Qt 6 framework. The project demonstrates a clean
+            separation between client, server, and shared logic, with a strong focus
+            on testability, automation, and software quality.
+          </p>
+          <p>
+            The system integrates automated unit testing using QtTest and GoogleTest,
+            combined with continuous integration and coverage analysis to ensure
+            correctness, maintainability, and long-term scalability.
+          </p>
         </div>
-    
+
         <div class="section">
           <h3>🔁 CI Summary</h3>
           <table>
@@ -174,45 +192,44 @@ jobs:
             <tr><th>Date</th><td>$(date)</td></tr>
           </table>
         </div>
-    
+
         <div class="section">
-          <h3>🧪 Test Results</h3>
+          <h3>🧪 Testing</h3>
           <ul>
-            <li class="success">Qt Tests – PASSED</li>
-            <li class="success">GoogleTests – PASSED</li>
+            <li>QtTest – Core and Qt-dependent logic</li>
+            <li>GoogleTest – Server command validation</li>
           </ul>
         </div>
-    
+
         <div class="section">
           <h3>📊 Test Coverage</h3>
           <p>
-            The interactive coverage report is embedded below.
-            If it does not render, open
-            <code>coverage-report/index.html</code> directly.
+            The coverage report below is generated using <strong>gcov + gcovr</strong>,
+            providing a reliable, self-contained HTML report with execution statistics
+            and coverage charts for production code.
           </p>
-          <iframe src="./coverage-report/index.html"></iframe>
+          <iframe src="./coverage.html"></iframe>
         </div>
-    
-        <div class="footer">
+
+        <p style="color:#777; font-size:.9em;">
           Generated automatically by GitHub Actions CI
-        </div>
-    
+        </p>
+
         </body>
         </html>
         EOF
 
     # =========================
-    # 1️⃣2️⃣ Create deliverable ZIP
+    # 1️⃣3️⃣ Create deliverable ZIP
     # =========================
     - name: Create deliverable ZIP
       run: |
         zip -r ClientServerSystem_Deliverable.zip \
           PROJECT_REPORT.html \
-          CI_REPORT.md \
-          coverage-report
+          coverage.html
 
     # =========================
-    # 1️⃣3️⃣ Upload artifacts
+    # 1️⃣4️⃣ Upload artifacts
     # =========================
     - name: Upload deliverable
       uses: actions/upload-artifact@v4
